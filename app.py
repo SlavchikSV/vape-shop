@@ -12,30 +12,6 @@ app.secret_key = 'ваш-секретный-ключ-измените-это'
 bcrypt = Bcrypt(app)
 
 # ==================== БАЗА ДАННЫХ ====================
-# Функция для проверки и создания БД если её нет
-def ensure_database_exists():
-    """Убедиться что база данных и таблицы существуют"""
-    try:
-        conn = sqlite3.connect('shop.db')
-        cursor = conn.cursor()
-        
-        # Проверяем есть ли таблица items
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='items';")
-        if not cursor.fetchone():
-            print("🔄 Создаю таблицы базы данных...")
-            init_db()
-        else:
-            print("✅ База данных уже существует")
-        
-        conn.close()
-    except Exception as e:
-        print(f"❌ Ошибка проверки БД: {e}")
-        # Создаем БД заново
-        init_db()
-
-# Вызови эту функцию ПРИ СТАРТЕ ПРИЛОЖЕНИЯ
-ensure_database_exists()
-
 def get_db():
     """Подключение к базе данных"""
     conn = sqlite3.connect('shop.db', check_same_thread=False)
@@ -158,6 +134,30 @@ def init_db():
     
     conn.commit()
     conn.close()
+
+# Функция для проверки и создания БД если её нет
+def ensure_database_exists():
+    """Убедиться что база данных и таблицы существуют"""
+    try:
+        conn = sqlite3.connect('shop.db')
+        cursor = conn.cursor()
+        
+        # Проверяем есть ли таблица items
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='items';")
+        if not cursor.fetchone():
+            print("🔄 Создаю таблицы базы данных...")
+            init_db()
+        else:
+            print("✅ База данных уже существует")
+        
+        conn.close()
+    except Exception as e:
+        print(f"❌ Ошибка проверки БД: {e}")
+        # Создаем БД заново
+        init_db()
+
+# Вызови эту функцию ПРИ СТАРТЕ ПРИЛОЖЕНИЯ
+ensure_database_exists()
 
 # ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
 def get_seller_by_username(username):
@@ -1218,4 +1218,5 @@ if __name__ == '__main__':
     # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))  # Render использует 10000
     app.run(host='0.0.0.0', port=port, debug=False)
+
 
