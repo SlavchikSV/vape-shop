@@ -12,6 +12,30 @@ app.secret_key = 'ваш-секретный-ключ-измените-это'
 bcrypt = Bcrypt(app)
 
 # ==================== БАЗА ДАННЫХ ====================
+# Функция для проверки и создания БД если её нет
+def ensure_database_exists():
+    """Убедиться что база данных и таблицы существуют"""
+    try:
+        conn = sqlite3.connect('shop.db')
+        cursor = conn.cursor()
+        
+        # Проверяем есть ли таблица items
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='items';")
+        if not cursor.fetchone():
+            print("🔄 Создаю таблицы базы данных...")
+            init_db()
+        else:
+            print("✅ База данных уже существует")
+        
+        conn.close()
+    except Exception as e:
+        print(f"❌ Ошибка проверки БД: {e}")
+        # Создаем БД заново
+        init_db()
+
+# Вызови эту функцию ПРИ СТАРТЕ ПРИЛОЖЕНИЯ
+ensure_database_exists()
+
 def get_db():
     """Подключение к базе данных"""
     conn = sqlite3.connect('shop.db', check_same_thread=False)
@@ -114,11 +138,11 @@ def init_db():
     # Добавляем ТОЛЬКО SlavchikSV и mkozlov
     try:
         default_sellers = [
-            ('SlavchikSV', 'sv280606', 'Администратор'),
-            ('mkozlov', '020988mama', 'Главный администратор'),
+            ('SlavchikSV', 'sv280606', 'Администратор', 'admin'),
+            ('mkozlov', '020988mama', 'Главный администратор', 'admin'),
         ]
         
-        for username, password, display in default_sellers:
+        for username, password, display, role in default_sellers:
             # Проверяем, существует ли уже продавец
             existing = conn.execute('SELECT id FROM sellers WHERE username = ?', (username,)).fetchone()
             if not existing:
@@ -126,7 +150,7 @@ def init_db():
                 conn.execute('''
                 INSERT INTO sellers (username, password_hash, display_name, role)
                 VALUES (?, ?, ?, ?)
-                ''', (username, password_hash, display, 'admin' if username == 'SlavchikSV' else 'mkozlov'))
+                ''', (username, password_hash, display, role))
         
         print("✅ Созданы продавцы: SlavchikSV и mkozlov")
     except Exception as e:
@@ -336,15 +360,20 @@ def clear_old_sessions():
     """Очистка старых неактивных сессий"""
     conn = get_db()
     try:
-        # Удаляем сессии старше 8 часов
-        conn.execute('''
-        DELETE FROM active_sessions 
-        WHERE datetime(last_activity) < datetime('now', '-8 hours')
-        ''')
-        conn.commit()
-        deleted = conn.total_changes
-        if deleted > 0:
-            print(f"🧹 Очищено {deleted} старых сессий")
+        # Проверяем существует ли таблица
+        cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='active_sessions';")
+        if cursor.fetchone():
+            # Удаляем сессии старше 8 часов
+            conn.execute('''
+            DELETE FROM active_sessions 
+            WHERE datetime(last_activity) < datetime('now', '-8 hours')
+            ''')
+            conn.commit()
+            deleted = conn.total_changes
+            if deleted > 0:
+                print(f"🧹 Очищено {deleted} старых сессий")
+        else:
+            print("⚠️ Таблица active_sessions еще не создана")
     except Exception as e:
         print(f"Ошибка при очистке сессий: {e}")
     finally:
@@ -1177,14 +1206,16 @@ def truncate_filter(s, length=30):
 
 # ==================== ЗАПУСК ====================
 
+# ==================== ЗАПУСК ====================
+
 if __name__ == '__main__':
-    # Инициализируем базу данных
-    init_db()
+    # БД уже создана через ensure_database_exists()
+    # НЕ ВЫЗЫВАЙ init_db() здесь!
     
     # Очищаем старые сессии при запуске
     clear_old_sessions()
     
     # Запускаем сервер
-    port = int(os.environ.get('PORT', 5000))
-
+    port = int(os.environ.get('PORT', 10000))  # Render использует 10000
     app.run(host='0.0.0.0', port=port, debug=False)
+
