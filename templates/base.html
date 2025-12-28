@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Магазин{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body { padding-top: 20px; background-color: #f8f9fa; }
+        .navbar-brand { font-weight: bold; }
+        .card { margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,.1); }
+        .status-badge { font-size: 0.8em; }
+        .in-stock { background-color: #d1e7dd; }
+        .in-transit { background-color: #fff3cd; }
+        .sold { background-color: #f8d7da; }
+        .personal { background-color: #cff4fc; }
+        
+        /* Стили для toast-уведомлений */
+        .toast { animation: slideInRight 0.3s ease-out; }
+        @keyframes slideInRight {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        
+        /* Анимация для бейджа уведомлений */
+        .notification-badge {
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes smooth-pulse {
+            0% {
+                opacity: 0.3;
+                transform: scale(0.95);
+            }
+            50% {
+                opacity: 1;
+                transform: scale(1.05);
+            }
+            100% {
+                opacity: 0.3;
+                transform: scale(0.95);
+            }
+        }
+
+        .live-pulse {
+            animation: smooth-pulse 1.5s ease-in-out infinite;
+        }
+
+        #live-dot {
+            font-size: 0.7em;
+            vertical-align: middle;
+            display: inline-block;
+        }
+        
+        /* Стили для dropdown */
+        .dropdown-menu {
+            box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+        }
+        
+        /* Стили для активных продавцов */
+        .active-seller-item:hover {
+            background-color: #f8f9fa;
+        }
+
+        .loading-spinner {
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .pulse-animation {
+            animation: pulse 2s infinite;
+        }
+
+        /* Анимация для предупреждения о сессии */
+        @keyframes session-warning {
+            0% { background-color: #fff3cd; }
+            50% { background-color: #ffeaa7; }
+            100% { background-color: #fff3cd; }
+        }
+        
+        .session-warning {
+            animation: session-warning 2s infinite;
+        }
+
+        /* Добавить в секцию <style> в base.html */
+            th[style*="cursor: pointer"]:hover {
+            background-color: #e9ecef;
+        }
+
+        .sort-asc::after {
+            content: " ▲";
+            font-size: 0.8em;
+            color: #0d6efd;
+        }
+
+        .sort-desc::after {
+            content: " ▼";
+            font-size: 0.8em;
+            color: #0d6efd;
+        }            
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-light bg-light mb-4">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-store"></i> Магазин
+            </a>
+            
+            <div class="navbar-nav">
+                <a class="nav-link" href="/buyer">
+                    <i class="fas fa-shopping-cart"></i> Покупатель
+                </a>
+                {% if session.seller_logged_in %}
+                    <a class="nav-link" href="/seller/dashboard">
+                        <i class="fas fa-user-tie"></i> Продавец
+                    </a>
+                    <a class="nav-link" href="/seller/logout">
+                        <i class="fas fa-sign-out-alt"></i> Выйти
+                    </a>
+                {% else %}
+                    <a class="nav-link" href="/seller/login">
+                        <i class="fas fa-sign-in-alt"></i> Продавец
+                    </a>
+                {% endif %}
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        {% block content %}{% endblock %}
+    </div>
+
+    <footer class="mt-5 py-3 text-center text-muted">
+        <div class="container">
+            <small>Магазин &copy; {{ now.year }}</small>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    {% block scripts %}{% endblock %}
+    
+    <!-- АГРЕССИВНАЯ ПРОВЕРКА СЕССИИ ДЛЯ ПРОДАВЦОВ -->
+    {% if session.seller_logged_in %}
+    <script>
+    // ==================== АГРЕССИВНАЯ ПРОВЕРКА СЕССИИ ====================
+    
+    let sessionCheckInterval;
+    let isChecking = false;
+    
+    // Основная функция проверки сессии
+    function checkSessionValidity() {
+        if (isChecking) return;
+        
+        isChecking = true;
+        
+        fetch('/seller/check_session', {
+            method: 'GET',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'Cache-Control': 'no-cache'
+            },
+            credentials: 'same-origin'
+        })
+        .then(response => {
+            if (response.status === 401 || response.status === 403) {
+                // Сессия невалидна - нас вытеснили
+                if (sessionCheckInterval) {
+                    clearInterval(sessionCheckInterval);
+                }
+                showSessionExpiredWarning();
+                
+                setTimeout(() => {
+                    window.location.href = '/seller/session_expired';
+                }, 3000);
+                
+                return null;
+            }
+            
+            return response.json();
+        })
+        .then(data => {
+            if (!data) return;
+            
+            if (data && data.valid === false) {
+                if (sessionCheckInterval) {
+                    clearInterval(sessionCheckInterval);
+                }
+                showSessionExpiredWarning();
+                
+                setTimeout(() => {
+                    window.location.href = '/seller/session_expired';
+                }, 3000);
+            }
+        })
+        .catch(error => {
+            console.error('Ошибка проверки сессии:', error);
+        })
+        .finally(() => {
+            isChecking = false;
+        });
+    }
+    
+    // Функция для показа предупреждения об истечении сессии
+    function showSessionExpiredWarning() {
+        // Удаляем старое предупреждение если есть
+        const oldWarning = document.getElementById('session-expired-warning');
+        if (oldWarning) {
+            oldWarning.remove();
+        }
+        
+        // Создаем новое предупреждение
+        const warningDiv = document.createElement('div');
+        warningDiv.id = 'session-expired-warning';
+        warningDiv.className = 'session-warning';
+        warningDiv.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            background-color: #dc3545;
+            color: white;
+            text-align: center;
+            padding: 15px;
+            z-index: 9999;
+            font-weight: bold;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        `;
+        
+        warningDiv.innerHTML = `
+            <i class="fas fa-exclamation-triangle"></i>
+            Вы были автоматически выведены из системы с другого устройства.
+            Перенаправляем на страницу входа через 3 секунды...
+            <i class="fas fa-exclamation-triangle"></i>
+        `;
+        
+        document.body.prepend(warningDiv);
+    }
+    
+    // Инициализация проверки сессии
+    function initSessionChecking() {
+        // Проверяем каждые 15 секунд
+        sessionCheckInterval = setInterval(checkSessionValidity, 15000);
+        
+        // Проверяем при фокусе окна
+        window.addEventListener('focus', function() {
+            setTimeout(checkSessionValidity, 1000);
+        });
+        
+        // Проверяем при видимости страницы
+        document.addEventListener('visibilitychange', function() {
+            if (!document.hidden) {
+                setTimeout(checkSessionValidity, 1000);
+            }
+        });
+        
+        // Проверяем при любом клике
+        document.addEventListener('click', function() {
+            setTimeout(checkSessionValidity, 2000);
+        });
+        
+        // Проверяем при нажатии клавиш
+        document.addEventListener('keydown', function() {
+            setTimeout(checkSessionValidity, 2000);
+        });
+        
+        // Первая проверка через 2 секунды после загрузки
+        setTimeout(checkSessionValidity, 2000);
+    }
+    
+    // Запускаем проверку при загрузке страницы
+    document.addEventListener('DOMContentLoaded', function() {
+        setTimeout(initSessionChecking, 1000);
+    });
+    
+    // Также запускаем если DOM уже загружен
+    if (document.readyState === 'interactive' || document.readyState === 'complete') {
+        setTimeout(initSessionChecking, 1000);
+    }
+    </script>
+    {% endif %}
+</body>
+</html>
