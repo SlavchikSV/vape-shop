@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+
+{% block title %}Вход продавца{% endblock %}
+
+{% block scripts %}
+<script>
+// Добавьте в блок <script> в seller_login.html
+// Обновление списка активных продавцов
+function updateActiveSellersList() {
+    fetch('/seller/active_sellers_list_public')
+        .then(response => response.json())
+        .then(data => {
+            const container = document.getElementById('active-sellers-list-login');
+            if (!container) return;
+            
+            if (!data.sellers || data.sellers.length === 0) {
+                container.innerHTML = `
+                <div class="text-center text-muted py-2">
+                    <i class="fas fa-user-slash"></i><br>
+                    Нет активных продавцов
+                </div>
+                `;
+                return;
+            }
+            
+            let html = '<div class="row">';
+            data.sellers.forEach(seller => {
+                html += `
+                <div class="col-12 mb-1">
+                    <div class="d-flex justify-content-between">
+                        <span>
+                            <i class="fas fa-user text-success"></i>
+                            ${seller.display_name || seller.username}
+                        </span>
+                        <small class="text-muted">с ${seller.login_time_short}</small>
+                    </div>
+                </div>
+                `;
+            });
+            html += '</div>';
+            
+            container.innerHTML = html;
+        })
+        .catch(error => {
+            console.error('Ошибка загрузки списка продавцов:', error);
+            const container = document.getElementById('active-sellers-list-login');
+            if (container) {
+                container.innerHTML = `<div class="text-danger small">Ошибка загрузки</div>`;
+            }
+        });
+}
+
+// Обновление счетчика активных продавцов на странице входа
+function updateActiveSellersCount() {
+    fetch('/seller/active_sellers_count_public')
+        .then(response => response.json())
+        .then(data => {
+            if (data.count !== undefined) {
+                const countElement = document.getElementById('active-sellers-count-login');
+                if (countElement) {
+                    countElement.textContent = data.count;
+                    
+                    // Показываем/скрываем иконку в зависимости от количества
+                    const iconElement = document.getElementById('seller-online-icon');
+                    if (iconElement) {
+                        if (data.count > 0) {
+                            iconElement.className = 'fas fa-circle text-success';
+                            iconElement.style.animation = 'pulse 2s infinite';
+                        } else {
+                            iconElement.className = 'fas fa-circle text-secondary';
+                            iconElement.style.animation = 'none';
+                        }
+                    }
+                }
+            }
+        })
+        .catch(error => console.error('Ошибка обновления счетчика:', error));
+}
+
+// Полное обновление
+function updateAllSellerInfo() {
+    updateActiveSellersCount();
+    updateActiveSellersList();
+}
+
+// Обновление каждые 10 секунд
+function startSellerCountUpdates() {
+    updateAllSellerInfo(); // Первое обновление сразу
+    setInterval(updateAllSellerInfo, 10000); // Затем каждые 10 секунд
+}
+
+// Запуск при загрузке страницы
+document.addEventListener('DOMContentLoaded', function() {
+    startSellerCountUpdates();
+    
+    // Добавляем анимацию пульсации
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+    `;
+    document.head.appendChild(style);
+});
+</script>
+{% endblock %}
+
+<!-- В seller_login.html добавьте проверку flash сообщений: -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="alert alert-{{ category if category != 'message' else 'info' }} alert-dismissible fade show">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+{% block content %}
+<div class="row justify-content-center mt-5">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-success text-white">
+                <h4 class="mb-0"><i class="fas fa-user-tie"></i> Вход для продавца</h4>
+            </div>
+            <div class="card-body">
+                {% if error %}
+                <div class="alert alert-danger">{{ error }}</div>
+                {% endif %}
+                
+                {% if expired_message %}
+                <div class="alert alert-warning alert-dismissible fade show">
+                    <i class="fas fa-exclamation-triangle"></i> {{ expired_message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+                {% endif %}
+                
+                <form method="POST" action="/seller/login">
+                    <div class="mb-3">
+                        <label for="username" class="form-label">Логин:</label>
+                        <input type="text" class="form-control" id="username" 
+                               name="username" required placeholder="Ваш логин">
+                        <div class="form-text">Доступные логины: SlavchikSV, mkozlov</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="password" class="form-label">Пароль:</label>
+                        <input type="password" class="form-control" id="password" 
+                               name="password" required placeholder="Ваш пароль">
+                        <div class="form-text">
+                            Пароли:
+                            <ul class="mb-0">
+                                <li>SlavchikSV → <code>sv280606</code></li>
+                                <li>mkozlov → <code>020988mama</code></li>
+                            </ul>
+                        </div>
+                    </div>
+                    
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-success btn-lg">
+                            <i class="fas fa-sign-in-alt"></i> Войти
+                        </button>
+                    </div>
+                </form>
+                
+                <div class="mt-4 alert alert-info">
+                    <h6><i class="fas fa-info-circle"></i> Новая система:</h6>
+                    <p>• <strong>Несколько продавцов</strong> могут работать одновременно<br>
+                       • <strong>Все действия логируются</strong> и видны всем<br>
+                       • <strong>Уведомления</strong> о действиях других продавцов<br>
+                       • <strong>Активные сессии</strong> отображаются в реальном времени</p>
+                </div>
+                
+                <!-- Блок с информацией об активных продавцах -->
+                <div class="alert alert-light border mt-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <i id="seller-online-icon" class="fas fa-circle text-secondary"></i>
+                            <span class="ms-2">
+                                <strong>Сейчас онлайн:</strong> 
+                                <span id="active-sellers-count-login">0</span> продавцов
+                            </span>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-info" 
+                                onclick="updateActiveSellersCount()">
+                            <i class="fas fa-sync-alt"></i> Обновить
+                        </button>
+                    </div>
+                    <div id="active-sellers-list-login" class="mt-2 small text-muted">
+                        <div class="text-center py-1">
+                            <div class="spinner-border spinner-border-sm" role="status">
+                                <span class="visually-hidden">Загрузка...</span>
+                            </div>
+                            <span class="ms-2">Загрузка списка...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
