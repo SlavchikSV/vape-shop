@@ -3,7 +3,6 @@ from flask import Flask, render_template, request, redirect, url_for, session, j
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_file, flash
 from flask_bcrypt import Bcrypt
 import sqlite3
-import pandas as pd
 from datetime import datetime, timedelta
 import secrets
 from datetime import datetime
@@ -1187,4 +1186,5 @@ if __name__ == '__main__':
     
     # Запускаем сервер
     port = int(os.environ.get('PORT', 5000))
+
     app.run(host='0.0.0.0', port=port, debug=False)
