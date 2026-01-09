@@ -63,7 +63,22 @@ def init_db():
         last_login TIMESTAMP
     )
     ''')
-    
+
+    # Таблица поставок
+    conn.execute('''
+    CREATE TABLE IF NOT EXISTS shipments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        shipment_number TEXT UNIQUE NOT NULL,
+        order_date TEXT NOT NULL,
+        received_date TEXT,
+        delivery_cost REAL DEFAULT 0,
+        status TEXT DEFAULT 'в пути',
+        total_items INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+
     # ТАБЛИЦА ДЕЙСТВИЙ
     conn.execute('''
     CREATE TABLE IF NOT EXISTS action_log (
@@ -109,6 +124,11 @@ def init_db():
         FOREIGN KEY (from_seller_id) REFERENCES sellers (id),
         FOREIGN KEY (item_id) REFERENCES items (id)
     )
+    ''')
+
+    # И добавим поле для ручного изменения цены продажи
+    conn.execute('''
+    ALTER TABLE items ADD COLUMN manual_price REAL
     ''')
     
     # Добавляем ТОЛЬКО SlavchikSV и mkozlov
@@ -1218,5 +1238,6 @@ if __name__ == '__main__':
     # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))  # Render использует 10000
     app.run(host='0.0.0.0', port=port, debug=False)
+
 
 
