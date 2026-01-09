@@ -19,7 +19,7 @@ def get_db():
     return conn
 
 def init_db():
-    """Инициализация базы данных"""
+    """Инициализация базы данных (основные таблицы)"""
     conn = get_db()
     
     # Таблица товаров
@@ -50,7 +50,7 @@ def init_db():
     )
     ''')
     
-    # ТАБЛИЦА ПРОДАВЦОВ
+    # Таблица продавцов
     conn.execute('''
     CREATE TABLE IF NOT EXISTS sellers (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -63,23 +63,8 @@ def init_db():
         last_login TIMESTAMP
     )
     ''')
-
-    # Таблица поставок
-    conn.execute('''
-    CREATE TABLE IF NOT EXISTS shipments (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        shipment_number TEXT UNIQUE NOT NULL,
-        order_date TEXT NOT NULL,
-        received_date TEXT,
-        delivery_cost REAL DEFAULT 0,
-        status TEXT DEFAULT 'в пути',
-        total_items INTEGER DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    ''')
-
-    # ТАБЛИЦА ДЕЙСТВИЙ
+    
+    # Таблица действий
     conn.execute('''
     CREATE TABLE IF NOT EXISTS action_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -94,7 +79,7 @@ def init_db():
     )
     ''')
     
-    # ТАБЛИЦА АКТИВНЫХ СЕССИЙ
+    # Таблица активных сессий
     conn.execute('''
     CREATE TABLE IF NOT EXISTS active_sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -109,7 +94,7 @@ def init_db():
     )
     ''')
     
-    # ТАБЛИЦА УВЕДОМЛЕНИЙ
+    # Таблица уведомлений
     conn.execute('''
     CREATE TABLE IF NOT EXISTS notifications (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -124,11 +109,6 @@ def init_db():
         FOREIGN KEY (from_seller_id) REFERENCES sellers (id),
         FOREIGN KEY (item_id) REFERENCES items (id)
     )
-    ''')
-
-    # И добавим поле для ручного изменения цены продажи
-    conn.execute('''
-    ALTER TABLE items ADD COLUMN manual_price REAL
     ''')
     
     # Добавляем ТОЛЬКО SlavchikSV и mkozlov
@@ -155,7 +135,99 @@ def init_db():
     conn.commit()
     conn.close()
 
-# Функция для проверки и создания БД если её нет
+def update_database_structure():
+    """
+    Обновить структуру базы данных (добавить новые таблицы и столбцы)
+    Эта функция запускается при каждом старте приложения
+    """
+    print("🔍 Проверка и обновление структуры базы данных...")
+    
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    try:
+        # 1. Таблица поставок (shipments)
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='shipments';")
+        if not cursor.fetchone():
+            print("📦 Создаю таблицу поставок...")
+            cursor.execute('''
+            CREATE TABLE shipments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                shipment_number TEXT UNIQUE NOT NULL,
+                order_date TEXT NOT NULL,
+                received_date TEXT,
+                delivery_cost REAL DEFAULT 0,
+                status TEXT DEFAULT 'в пути',
+                total_items INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            ''')
+            print("✅ Таблица shipments создана")
+        else:
+            print("✅ Таблица shipments уже существует")
+        
+        # 2. Проверяем существующие столбцы в items
+        cursor.execute("PRAGMA table_info(items);")
+        columns_info = cursor.fetchall()
+        existing_columns = [col[1] for col in columns_info]
+        
+        # 3. Добавляем manual_price если его нет
+        if 'manual_price' not in existing_columns:
+            print("💰 Добавляю столбец manual_price в items...")
+            try:
+                cursor.execute('ALTER TABLE items ADD COLUMN manual_price REAL')
+                print("✅ Столбец manual_price добавлен")
+            except Exception as e:
+                print(f"⚠️ Ошибка добавления manual_price: {e}")
+        else:
+            print("✅ Столбец manual_price уже существует")
+        
+        # 4. Добавляем shipment_id если его нет
+        if 'shipment_id' not in existing_columns:
+            print("📦 Добавляю столбец shipment_id в items...")
+            try:
+                cursor.execute('ALTER TABLE items ADD COLUMN shipment_id INTEGER')
+                print("✅ Столбец shipment_id добавлен")
+            except Exception as e:
+                print(f"⚠️ Ошибка добавления shipment_id: {e}")
+        else:
+            print("✅ Столбец shipment_id уже существует")
+        
+        # 5. Создаем индекс для ускорения поиска
+        try:
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_items_shipment ON items(shipment_id)')
+            print("✅ Индекс idx_items_shipment создан/проверен")
+        except Exception as e:
+            print(f"⚠️ Ошибка создания индекса: {e}")
+        
+        # 6. Проверяем и добавляем недостающие таблицы
+        required_tables = ['sellers', 'action_log', 'active_sessions', 'notifications']
+        
+        for table_name in required_tables:
+            cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}';")
+            if not cursor.fetchone():
+                print(f"⚠️ Таблица {table_name} не найдена, но будет создана при необходимости")
+        
+        conn.commit()
+        
+        # Показываем итоговую структуру
+        print("\n📊 Итоговая структура базы данных:")
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;")
+        tables = cursor.fetchall()
+        for table in tables:
+            print(f"  - {table['name']}")
+        
+        print("🎉 Структура базы данных проверена и обновлена!")
+        
+    except Exception as e:
+        print(f"❌ Ошибка при обновлении структуры БД: {e}")
+        import traceback
+        traceback.print_exc()
+        
+    finally:
+        conn.close()
+
 def ensure_database_exists():
     """Убедиться что база данных и таблицы существуют"""
     try:
@@ -165,16 +237,21 @@ def ensure_database_exists():
         # Проверяем есть ли таблица items
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='items';")
         if not cursor.fetchone():
-            print("🔄 Создаю таблицы базы данных...")
+            print("🔄 Создаю основные таблицы базы данных...")
             init_db()
         else:
-            print("✅ База данных уже существует")
+            print("✅ Основные таблицы уже существуют")
         
         conn.close()
+        
+        # Всегда проверяем и обновляем структуру
+        update_database_structure()
+        
     except Exception as e:
         print(f"❌ Ошибка проверки БД: {e}")
         # Создаем БД заново
         init_db()
+        update_database_structure()
 
 # Вызови эту функцию ПРИ СТАРТЕ ПРИЛОЖЕНИЯ
 ensure_database_exists()
@@ -581,6 +658,7 @@ def create_shipment():
         ))
         
         shipment_id = cursor.lastrowid
+        
         conn.commit()
         conn.close()
         
@@ -645,8 +723,8 @@ def add_items_to_shipment(shipment_id):
                 'name': item_data['name']
             })
             
-            # Добавляем транзакцию покупки
-            if status != 'в пути':
+            # Добавляем транзакцию покупки (если товар уже "в наличии")
+            if status == 'в наличии':
                 cursor.execute('''
                 INSERT INTO transactions (date, type, item_id, amount, note)
                 VALUES (?, ?, ?, ?, ?)
@@ -705,7 +783,7 @@ def update_shipment_status(shipment_id):
         ''', (new_status, received_date, 
               datetime.now().strftime('%Y-%m-%d %H:%M:%S'), shipment_id))
         
-        # Обновляем статус всех товаров в поставке
+        # Обновляем статус всех товаров в поставке (кроме проданных и взятых себе)
         cursor.execute('''
         UPDATE items 
         SET status = ?, date_arrived = ?
@@ -721,16 +799,23 @@ def update_shipment_status(shipment_id):
             ''', (shipment_id,)).fetchall()
             
             for item in items:
-                cursor.execute('''
-                INSERT INTO transactions (date, type, item_id, amount, note)
-                VALUES (?, ?, ?, ?, ?)
-                ''', (
-                    received_date,
-                    'purchase',
-                    item['id'],
-                    -float(item['cost_price']),
-                    f'Покупка {item["name"]}'
-                ))
+                # Проверяем, нет ли уже транзакции покупки для этого товара
+                existing_tx = conn.execute('''
+                SELECT tx_id FROM transactions 
+                WHERE item_id = ? AND type = 'purchase'
+                ''', (item['id'],)).fetchone()
+                
+                if not existing_tx:
+                    cursor.execute('''
+                    INSERT INTO transactions (date, type, item_id, amount, note)
+                    VALUES (?, ?, ?, ?, ?)
+                    ''', (
+                        received_date,
+                        'purchase',
+                        item['id'],
+                        -float(item['cost_price']),
+                        f'Покупка {item["name"]}'
+                    ))
         
         conn.commit()
         conn.close()
@@ -789,12 +874,21 @@ def delete_item(item_id):
         conn = get_db()
         
         # Получаем информацию о товаре для лога
-        item = conn.execute('SELECT name FROM items WHERE id = ?', 
+        item = conn.execute('SELECT name, shipment_id FROM items WHERE id = ?', 
                            (item_id,)).fetchone()
         
         if not item:
             conn.close()
             return jsonify({'error': 'Товар не найден'}), 404
+        
+        # Уменьшаем счетчик товаров в поставке если товар привязан к поставке
+        if item['shipment_id']:
+            cursor = conn.cursor()
+            cursor.execute('''
+            UPDATE shipments 
+            SET total_items = total_items - 1, updated_at = ?
+            WHERE id = ?
+            ''', (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), item['shipment_id']))
         
         # Удаляем товар
         conn.execute('DELETE FROM items WHERE id = ?', (item_id,))
@@ -1538,16 +1632,9 @@ def truncate_filter(s, length=30):
 # ==================== ЗАПУСК ====================
 
 if __name__ == '__main__':
-    # БД уже создана через ensure_database_exists()
-    # НЕ ВЫЗЫВАЙ init_db() здесь!
-    
     # Очищаем старые сессии при запуске
     clear_old_sessions()
     
     # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))  # Render использует 10000
     app.run(host='0.0.0.0', port=port, debug=False)
-
-
-
-
