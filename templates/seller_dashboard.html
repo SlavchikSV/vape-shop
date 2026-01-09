@@ -472,6 +472,32 @@ document.addEventListener('DOMContentLoaded', function() {
             </div>
         </div>
     </div>
+
+        <!-- Добавить после существующих кнопок управления -->
+    <div class="d-flex gap-2 mb-3">
+        <button class="btn btn-primary" onclick="showAddShipmentModal()">
+            <i class="fas fa-truck-loading"></i> Добавить поставку
+        </button>
+        
+        <button class="btn btn-info" onclick="loadShipments()">
+            <i class="fas fa-list"></i> Показать поставки
+        </button>
+        
+        <!-- Кнопка удаления (ТОЛЬКО ДЛЯ ТЕСТИРОВАНИЯ) -->
+        <button class="btn btn-danger" onclick="showDeleteMode()" id="delete-mode-btn">
+            <i class="fas fa-trash"></i> Режим удаления (тест)
+        </button>
+    </div>
+    
+    <!-- Секция для отображения поставок -->
+    <div id="shipments-section" class="card mb-4" style="display: none;">
+        <div class="card-header bg-info text-white">
+            <h5 class="mb-0"><i class="fas fa-truck"></i> Управление поставками</h5>
+        </div>
+        <div class="card-body">
+            <div id="shipments-list"></div>
+        </div>
+    </div>
     
     <!-- Список товаров -->
     <div class="card">
@@ -571,4 +597,5 @@ document.addEventListener('DOMContentLoaded', function() {
     </div>
     {% endif %}
 </div>
+
 {% endblock %}
