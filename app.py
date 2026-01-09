@@ -525,6 +525,315 @@ def clear_old_pending_logins():
             session.pop('pending_login', None)
             print("🧹 Очищен устаревший pending логин")
 
+# ==================== НОВЫЕ МАРШРУТЫ ДЛЯ ПОСТАВОК ====================
+
+@app.route('/seller/shipments')
+def get_shipments():
+    """Получить список всех поставок"""
+    if not session.get('seller_logged_in'):
+        return jsonify({'error': 'Нет доступа'}), 401
+    
+    conn = get_db()
+    shipments = conn.execute('''
+        SELECT * FROM shipments 
+        ORDER BY order_date DESC, id DESC
+    ''').fetchall()
+    conn.close()
+    
+    shipments_list = [dict(ship) for ship in shipments]
+    return jsonify({'shipments': shipments_list})
+
+@app.route('/seller/shipments/create', methods=['POST'])
+def create_shipment():
+    """Создать новую поставку"""
+    if not session.get('seller_logged_in'):
+        return jsonify({'error': 'Нет доступа'}), 401
+    
+    try:
+        data = request.get_json()
+        
+        # Генерируем номер поставки (SHIP-001, SHIP-002...)
+        conn = get_db()
+        
+        # Получаем последний номер
+        last_shipment = conn.execute(
+            'SELECT shipment_number FROM shipments ORDER BY id DESC LIMIT 1'
+        ).fetchone()
+        
+        if last_shipment and last_shipment['shipment_number'].startswith('SHIP-'):
+            last_num = int(last_shipment['shipment_number'].split('-')[1])
+            new_num = last_num + 1
+        else:
+            new_num = 1
+        
+        shipment_number = f"SHIP-{new_num:03d}"
+        
+        # Вставляем поставку
+        cursor = conn.cursor()
+        cursor.execute('''
+        INSERT INTO shipments (shipment_number, order_date, delivery_cost, status)
+        VALUES (?, ?, ?, ?)
+        ''', (
+            shipment_number,
+            data['order_date'],
+            float(data['delivery_cost']),
+            data['status']
+        ))
+        
+        shipment_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        
+        # Логируем действие
+        log_action(session['seller_id'], 'create_shipment', 
+                  details=f'Создана поставка {shipment_number}')
+        
+        return jsonify({
+            'success': True, 
+            'shipment_id': shipment_id,
+            'shipment_number': shipment_number
+        })
+        
+    except Exception as e:
+        log_action(session.get('seller_id'), 'error', 
+                  details=f'Ошибка создания поставки: {str(e)}')
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/seller/shipments/<int:shipment_id>/add_items', methods=['POST'])
+def add_items_to_shipment(shipment_id):
+    """Добавить товары в поставку"""
+    if not session.get('seller_logged_in'):
+        return jsonify({'error': 'Нет доступа'}), 401
+    
+    try:
+        data = request.get_json()
+        items = data['items']  # Массив товаров
+        status = data.get('status', 'в пути')
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Получаем информацию о поставке
+        shipment = conn.execute(
+            'SELECT * FROM shipments WHERE id = ?', 
+            (shipment_id,)
+        ).fetchone()
+        
+        if not shipment:
+            conn.close()
+            return jsonify({'error': 'Поставка не найдена'}), 404
+        
+        added_items = []
+        for item_data in items:
+            cursor.execute('''
+            INSERT INTO items (name, cost_price, sell_price, status, 
+                             shipment_id, date_arrived, manual_price)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                item_data['name'],
+                float(item_data['cost_price']),
+                float(item_data['sell_price']),
+                status,
+                shipment_id,
+                shipment['order_date'],  # Используем дату заказа поставки
+                float(item_data['sell_price'])  # Начальная manual_price = sell_price
+            ))
+            
+            item_id = cursor.lastrowid
+            added_items.append({
+                'id': item_id,
+                'name': item_data['name']
+            })
+            
+            # Добавляем транзакцию покупки
+            if status != 'в пути':
+                cursor.execute('''
+                INSERT INTO transactions (date, type, item_id, amount, note)
+                VALUES (?, ?, ?, ?, ?)
+                ''', (
+                    datetime.now().strftime('%Y-%m-%d'),
+                    'purchase',
+                    item_id,
+                    -float(item_data['cost_price']),
+                    f'Покупка {item_data["name"]}'
+                ))
+        
+        # Обновляем счетчик товаров в поставке
+        cursor.execute('''
+        UPDATE shipments 
+        SET total_items = total_items + ?, updated_at = ?
+        WHERE id = ?
+        ''', (len(items), datetime.now().strftime('%Y-%m-%d %H:%M:%S'), shipment_id))
+        
+        conn.commit()
+        conn.close()
+        
+        # Логируем действие
+        log_action(session['seller_id'], 'add_items_to_shipment', 
+                  details=f'Добавлено {len(items)} товаров в поставку #{shipment_id}')
+        
+        return jsonify({
+            'success': True, 
+            'added_count': len(items),
+            'items': added_items
+        })
+        
+    except Exception as e:
+        log_action(session.get('seller_id'), 'error', 
+                  details=f'Ошибка добавления товаров: {str(e)}')
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/seller/shipments/<int:shipment_id>/update_status', methods=['POST'])
+def update_shipment_status(shipment_id):
+    """Обновить статус поставки и всех товаров в ней"""
+    if not session.get('seller_logged_in'):
+        return jsonify({'error': 'Нет доступа'}), 401
+    
+    try:
+        data = request.get_json()
+        new_status = data['status']
+        received_date = data.get('received_date', datetime.now().strftime('%Y-%m-%d'))
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Обновляем статус поставки
+        cursor.execute('''
+        UPDATE shipments 
+        SET status = ?, received_date = ?, updated_at = ?
+        WHERE id = ?
+        ''', (new_status, received_date, 
+              datetime.now().strftime('%Y-%m-%d %H:%M:%S'), shipment_id))
+        
+        # Обновляем статус всех товаров в поставке
+        cursor.execute('''
+        UPDATE items 
+        SET status = ?, date_arrived = ?
+        WHERE shipment_id = ? AND status != 'продано' AND status != 'взял себе'
+        ''', (new_status, received_date, shipment_id))
+        
+        # Если меняем с "в пути" на "в наличии" - добавляем транзакции покупки
+        if new_status == 'в наличии':
+            # Получаем все товары из этой поставки
+            items = conn.execute('''
+            SELECT id, name, cost_price FROM items 
+            WHERE shipment_id = ? AND status = 'в наличии'
+            ''', (shipment_id,)).fetchall()
+            
+            for item in items:
+                cursor.execute('''
+                INSERT INTO transactions (date, type, item_id, amount, note)
+                VALUES (?, ?, ?, ?, ?)
+                ''', (
+                    received_date,
+                    'purchase',
+                    item['id'],
+                    -float(item['cost_price']),
+                    f'Покупка {item["name"]}'
+                ))
+        
+        conn.commit()
+        conn.close()
+        
+        # Логируем действие
+        log_action(session['seller_id'], 'update_shipment_status', 
+                  details=f'Статус поставки #{shipment_id} изменен на "{new_status}"')
+        
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        log_action(session.get('seller_id'), 'error', 
+                  details=f'Ошибка обновления статуса поставки: {str(e)}')
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/seller/items/<int:item_id>/update_price', methods=['POST'])
+def update_item_price(item_id):
+    """Обновить цену продажи товара"""
+    if not session.get('seller_logged_in'):
+        return jsonify({'error': 'Нет доступа'}), 401
+    
+    try:
+        data = request.get_json()
+        new_price = float(data['sell_price'])
+        
+        conn = get_db()
+        
+        # Обновляем manual_price (ручную цену)
+        conn.execute('''
+        UPDATE items 
+        SET manual_price = ?
+        WHERE id = ?
+        ''', (new_price, item_id))
+        
+        conn.commit()
+        conn.close()
+        
+        # Логируем действие
+        log_action(session['seller_id'], 'update_item_price', item_id,
+                  f'Цена изменена на {new_price} BYN')
+        
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        log_action(session.get('seller_id'), 'error', 
+                  details=f'Ошибка обновления цены: {str(e)}')
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/seller/items/<int:item_id>/delete', methods=['POST'])
+def delete_item(item_id):
+    """Удалить товар (ВНИМАНИЕ: только для тестирования!)"""
+    if not session.get('seller_logged_in'):
+        return jsonify({'error': 'Нет доступа'}), 401
+    
+    try:
+        conn = get_db()
+        
+        # Получаем информацию о товаре для лога
+        item = conn.execute('SELECT name FROM items WHERE id = ?', 
+                           (item_id,)).fetchone()
+        
+        if not item:
+            conn.close()
+            return jsonify({'error': 'Товар не найден'}), 404
+        
+        # Удаляем товар
+        conn.execute('DELETE FROM items WHERE id = ?', (item_id,))
+        
+        # Также удаляем связанные транзакции
+        conn.execute('DELETE FROM transactions WHERE item_id = ?', (item_id,))
+        
+        conn.commit()
+        conn.close()
+        
+        # Логируем действие
+        log_action(session['seller_id'], 'delete_item', 
+                  details=f'Удален товар: {item["name"]} (ID: {item_id})')
+        
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        log_action(session.get('seller_id'), 'error', 
+                  details=f'Ошибка удаления товара: {str(e)}')
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/seller/items/shipment/<int:shipment_id>')
+def get_items_by_shipment(shipment_id):
+    """Получить товары по ID поставки"""
+    if not session.get('seller_logged_in'):
+        return jsonify({'error': 'Нет доступа'}), 401
+    
+    conn = get_db()
+    items = conn.execute('''
+        SELECT * FROM items 
+        WHERE shipment_id = ?
+        ORDER BY id
+    ''', (shipment_id,)).fetchall()
+    conn.close()
+    
+    items_list = [dict(item) for item in items]
+    return jsonify({'items': items_list})
+
+
 # ==================== МАРШРУТЫ ====================
 
 @app.context_processor
@@ -1238,6 +1547,7 @@ if __name__ == '__main__':
     # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))  # Render использует 10000
     app.run(host='0.0.0.0', port=port, debug=False)
+
 
 
 
