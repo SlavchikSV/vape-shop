@@ -93,8 +93,8 @@
             animation: session-warning 2s infinite;
         }
 
-        /* Добавить в секцию <style> в base.html */
-            th[style*="cursor: pointer"]:hover {
+        /* Стили для таблиц */
+        th[style*="cursor: pointer"]:hover {
             background-color: #e9ecef;
         }
 
@@ -108,7 +108,36 @@
             content: " ▼";
             font-size: 0.8em;
             color: #0d6efd;
-        }            
+        }
+        
+        /* Стили для модальных окон */
+        .modal-header.bg-primary,
+        .modal-header.bg-success,
+        .modal-header.bg-info,
+        .modal-header.bg-warning {
+            color: white;
+        }
+        
+        /* Стили для полей ввода цен */
+        .price-input {
+            max-width: 120px;
+        }
+        
+        /* Стили для карточек поставок */
+        .shipment-card {
+            transition: transform 0.2s;
+        }
+        
+        .shipment-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,.1);
+        }
+        
+        /* Стили для текстового поля массового ввода */
+        #itemsTextArea {
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
