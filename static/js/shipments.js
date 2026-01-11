@@ -1,5 +1,3 @@
-[file name]: shipments.js
-[file content begin]
 // ==================== УПРАВЛЕНИЕ ПОСТАВКАМИ ====================
 // Глобальные переменные
 let currentShipmentId = null;
@@ -906,4 +904,3 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 });
-[file content end]
