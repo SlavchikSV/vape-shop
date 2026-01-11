@@ -1,6 +1,3 @@
-[file name]: update_db.py
-[file content begin]
-#!/usr/bin/env python3
 """
 Скрипт для обновления базы данных
 Запустите: python update_db.py
@@ -113,4 +110,3 @@ def update_database():
 
 if __name__ == '__main__':
     update_database()
-[file content end]
