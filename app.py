@@ -1,5 +1,3 @@
-[file name]: app.py
-[file content begin]
 import os
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_file
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_file, flash
@@ -7,7 +5,6 @@ from flask_bcrypt import Bcrypt
 import sqlite3
 from datetime import datetime, timedelta
 import secrets
-from datetime import datetime
 
 app = Flask(__name__)
 app.secret_key = 'ваш-секретный-ключ-измените-это'
@@ -1677,3 +1674,4 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
 [file content end]
+
