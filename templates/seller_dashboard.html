@@ -1,3 +1,5 @@
+[file name]: seller_dashboard.html
+[file content begin]
 {% extends "base.html" %}
 
 {% block title %}Панель продавца{% endblock %}
@@ -181,28 +183,6 @@ function updateActiveSellersList(sellers) {
     container.innerHTML = html;
 }
 
-// Изменение статуса товара
-function updateStatus(itemId, currentStatus) {
-    const newStatus = prompt('Новый статус:', currentStatus);
-    if (!newStatus || newStatus === currentStatus) return;
-    
-    fetch('/seller/update/' + itemId, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({status: newStatus})
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            alert('Статус обновлён!');
-            location.reload();
-        } else {
-            alert('Ошибка: ' + data.error);
-        }
-    })
-    .catch(error => alert('Ошибка сети: ' + error));
-}
-
 // Сортировка таблицы
 function sortTable(columnIndex, sortType = 'string') {
     const table = document.querySelector('.table');
@@ -210,18 +190,14 @@ function sortTable(columnIndex, sortType = 'string') {
     const rows = Array.from(tbody.querySelectorAll('tr'));
     const header = table.querySelectorAll('th')[columnIndex];
     
-    // Определяем направление сортировки
     const isAscending = !header.classList.contains('sort-asc');
     
-    // Сбрасываем сортировку на других заголовках
     table.querySelectorAll('th').forEach(th => {
         th.classList.remove('sort-asc', 'sort-desc');
     });
     
-    // Устанавливаем направление сортировки
     header.classList.add(isAscending ? 'sort-asc' : 'sort-desc');
     
-    // Сортируем строки
     rows.sort((a, b) => {
         const aCell = a.cells[columnIndex];
         const bCell = b.cells[columnIndex];
@@ -229,23 +205,19 @@ function sortTable(columnIndex, sortType = 'string') {
         let aValue = aCell.textContent.trim();
         let bValue = bCell.textContent.trim();
         
-        // Преобразуем значения для числовой сортировки
         if (sortType === 'number') {
             aValue = parseFloat(aValue) || 0;
             bValue = parseFloat(bCell.textContent.trim()) || 0;
         } else if (sortType === 'date') {
-            // Для даты пытаемся распарсить
             aValue = new Date(aValue.split(': ')[1] || aValue);
             bValue = new Date(bValue.split(': ')[1] || bValue);
         }
         
-        // Сравниваем
         if (aValue < bValue) return isAscending ? -1 : 1;
         if (aValue > bValue) return isAscending ? 1 : -1;
         return 0;
     });
     
-    // Перезаписываем строки в новом порядке
     rows.forEach(row => tbody.appendChild(row));
 }
 
@@ -259,14 +231,13 @@ document.addEventListener('DOMContentLoaded', function() {
     setInterval(loadNotifications, 10000);
     setInterval(updateActiveSellersCount, 15000);
     
-    // Инициализация сортировки таблицы
     const table = document.querySelector('.table');
     if (table) {
         const headers = table.querySelectorAll('th');
         headers.forEach((header, index) => {
             let sortType = 'string';
-            if (index === 0 || index === 3 || index === 4) sortType = 'number'; // ID, себестоимость, цена
-            if (index === 6) sortType = 'date'; // Дата
+            if (index === 0 || index === 3 || index === 4) sortType = 'number';
+            if (index === 6) sortType = 'date';
             
             header.style.cursor = 'pointer';
             header.title = 'Нажмите для сортировки';
@@ -276,22 +247,6 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         });
     }
-    
-    // Инициализация кнопок управления поставками
-    const shipmentButtons = [
-        'add-shipment-btn',
-        'load-shipments-btn',
-        'delete-mode-btn',
-        'add-single-item-btn'
-    ];
-    
-    shipmentButtons.forEach(btnId => {
-        const btn = document.getElementById(btnId);
-        if (btn) {
-            // Удаляем старые обработчики и добавляем новые
-            btn.onclick = null;
-        }
-    });
 });
 </script>
 {% endblock %}
@@ -378,15 +333,15 @@ document.addEventListener('DOMContentLoaded', function() {
     
     <!-- Статистика -->
     <div class="row mb-4">
-        <div class="col-md-3">
+        <div class="col-md-2">
             <div class="card text-white bg-primary">
                 <div class="card-body">
-                    <h5 class="card-title">Всего товаров</h5>
+                    <h5 class="card-title">Всего</h5>
                     <h2>{{ stats.total }}</h2>
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col-md-2">
             <div class="card text-white bg-success">
                 <div class="card-body">
                     <h5 class="card-title">В наличии</h5>
@@ -394,7 +349,23 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col-md-2">
+            <div class="card text-white bg-warning">
+                <div class="card-body">
+                    <h5 class="card-title">В пути</h5>
+                    <h2>{{ stats.in_transit }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="card text-white bg-info">
+                <div class="card-body">
+                    <h5 class="card-title">Резерв</h5>
+                    <h2>{{ stats.reserved }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-2">
             <div class="card text-white bg-danger">
                 <div class="card-body">
                     <h5 class="card-title">Продано</h5>
@@ -402,11 +373,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="card text-white bg-warning">
+        <div class="col-md-2">
+            <div class="card text-white bg-secondary">
                 <div class="card-body">
-                    <h5 class="card-title">В пути</h5>
-                    <h2>{{ stats.in_transit }}</h2>
+                    <h5 class="card-title">Личное</h5>
+                    <h2>{{ stats.personal }}</h2>
                 </div>
             </div>
         </div>
@@ -420,7 +391,7 @@ document.addEventListener('DOMContentLoaded', function() {
         <div class="card-body">
             <div class="d-flex flex-wrap gap-2 mb-3">
                 <button class="btn btn-primary" id="add-shipment-btn">
-                    <i class="fas fa-truck-loading"></i> Добавить поставку
+                    <i class="fas fa-truck-loading"></i> Создать поставку
                 </button>
                 
                 <button class="btn btn-info" id="load-shipments-btn">
@@ -442,8 +413,14 @@ document.addEventListener('DOMContentLoaded', function() {
             
             <div class="alert alert-warning">
                 <i class="fas fa-exclamation-triangle"></i>
-                <strong>Поставки:</strong> Создавайте поставки, добавляйте в них товары партиями.
-                При изменении статуса поставки все товары в ней автоматически обновят свой статус.
+                <strong>Поставки:</strong> Создавайте поставки с товарами. Статус меняется только один раз: с "в пути" на "в наличии". 
+                При изменении статуса указывается стоимость доставки (отдельная транзакция). 
+                Когда все товары в поставке проданы, статус поставки автоматически меняется на "продано".
+            </div>
+            
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle"></i>
+                <strong>Статусы товаров:</strong> в пути → в наличии → зарезервировано → продано/взял себе
             </div>
         </div>
     </div>
@@ -481,7 +458,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     </thead>
                     <tbody>
                         {% for item in items %}
-                        <tr class="{% if item.status == 'в наличии' %}table-success{% elif item.status == 'в пути' %}table-warning{% elif item.status == 'продано' %}table-danger{% elif item.status == 'взял себе' %}table-info{% endif %}">
+                        <tr class="{% if item.status == 'в наличии' %}table-success{% elif item.status == 'в пути' %}table-warning{% elif item.status == 'зарезервировано' %}table-info{% elif item.status == 'продано' %}table-danger{% elif item.status == 'взял себе' %}table-primary{% endif %}">
                             <td>{{ item.id }}</td>
                             <td>{{ item.name }}</td>
                             <td>
@@ -506,8 +483,9 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <span class="badge 
                                     {% if item.status == 'в наличии' %}bg-success
                                     {% elif item.status == 'в пути' %}bg-warning
+                                    {% elif item.status == 'зарезервировано' %}bg-info
                                     {% elif item.status == 'продано' %}bg-danger
-                                    {% elif item.status == 'взял себе' %}bg-info
+                                    {% elif item.status == 'взял себе' %}bg-primary
                                     {% else %}bg-secondary{% endif %}">
                                     {{ item.status }}
                                 </span>
@@ -520,6 +498,8 @@ document.addEventListener('DOMContentLoaded', function() {
                                         Продажа: {{ item.date_sold[:10] if item.date_sold else '—' }}
                                     {% elif item.status == 'взял себе' %}
                                         Взято: {{ item.date_taken[:10] if item.date_taken else '—' }}
+                                    {% elif item.status == 'зарезервировано' %}
+                                        Резерв: {{ item.date_reserved[:10] if item.date_reserved else '—' }}
                                     {% else %}
                                         —
                                     {% endif %}
@@ -530,7 +510,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                         data-id="{{ item.id }}" 
                                         data-status="{{ item.status }}"
                                         onclick="updateStatus({{ item.id }}, '{{ item.status }}')">
-                                    <i class="fas fa-edit"></i> Статус
+                                    <i class="fas fa-edit"></i> Сменить статус
                                 </button>
                             </td>
                         </tr>
@@ -579,3 +559,4 @@ document.addEventListener('DOMContentLoaded', function() {
 <!-- Включаем модальные окна -->
 {% include 'modals.html' %}
 {% endblock %}
+[file content end]
