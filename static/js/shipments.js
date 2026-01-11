@@ -1,49 +1,105 @@
+[file name]: shipments.js
+[file content begin]
 // ==================== УПРАВЛЕНИЕ ПОСТАВКАМИ ====================
 // Глобальные переменные
 let currentShipmentId = null;
 let currentShipmentNumber = null;
 let deleteMode = false;
 
-// Показать модальное окно добавления поставки
+// Показать модальное окно добавления поставки с товарами
 function showAddShipmentModal() {
     const modal = new bootstrap.Modal(document.getElementById('addShipmentModal'));
+    
+    // Очищаем текстовое поле товаров
+    document.getElementById('itemsTextArea').value = '';
+    
     modal.show();
 }
 
-// Создать поставку
+// Создать поставку с товарами
 function createShipment() {
     const orderDate = document.getElementById('shipmentOrderDate').value;
-    const deliveryCost = parseFloat(document.getElementById('shipmentDeliveryCost').value);
-    const status = document.getElementById('shipmentStatus').value;
+    const itemsText = document.getElementById('itemsTextArea').value.trim();
     
     if (!orderDate) {
         showToast('Укажите дату заказа', 'warning');
         return;
     }
     
-    if (isNaN(deliveryCost) || deliveryCost < 0) {
-        showToast('Укажите корректную стоимость доставки', 'warning');
+    if (!itemsText) {
+        showToast('Добавьте товары в поставку', 'warning');
         return;
     }
     
-    showLoading('Создание поставки...');
+    // Парсим товары
+    const lines = itemsText.split('\n').filter(line => line.trim());
+    const items = [];
+    const errors = [];
     
-    fetch('/seller/shipments/create', {
+    lines.forEach((line, index) => {
+        const parts = line.split(',').map(part => part.trim());
+        if (parts.length >= 3) {
+            const name = parts[0];
+            const costPrice = parseFloat(parts[1]);
+            const sellPrice = parseFloat(parts[2]);
+            
+            if (!name) {
+                errors.push(`Строка ${index + 1}: нет названия`);
+                return;
+            }
+            
+            if (isNaN(costPrice) || costPrice < 0) {
+                errors.push(`Строка ${index + 1}: некорректная себестоимость`);
+                return;
+            }
+            
+            if (isNaN(sellPrice) || sellPrice < 0) {
+                errors.push(`Строка ${index + 1}: некорректная цена продажи`);
+                return;
+            }
+            
+            items.push({
+                name: name,
+                cost_price: costPrice,
+                sell_price: sellPrice
+            });
+        } else {
+            errors.push(`Строка ${index + 1}: неверный формат`);
+        }
+    });
+    
+    if (errors.length > 0) {
+        showToast(`Ошибки в ${errors.length} строках. Проверьте формат.`, 'danger');
+        return;
+    }
+    
+    if (items.length === 0) {
+        showToast('Нет корректных товаров для добавления', 'warning');
+        return;
+    }
+    
+    showLoading(`Создание поставки с ${items.length} товарами...`);
+    
+    fetch('/seller/shipments/create_with_items', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
             order_date: orderDate,
-            delivery_cost: deliveryCost,
-            status: status
+            items: items
         })
     })
     .then(response => response.json())
     .then(data => {
         hideLoading();
         if (data.success) {
-            showToast(`Поставка создана! Номер: ${data.shipment_number}`, 'success');
+            showToast(`Поставка создана! Номер: ${data.shipment_number}, товаров: ${data.added_count}`, 'success');
             bootstrap.Modal.getInstance(document.getElementById('addShipmentModal')).hide();
             loadShipments();
+            
+            // Обновляем таблицу товаров
+            setTimeout(() => {
+                location.reload();
+            }, 1000);
         } else {
             showToast('Ошибка: ' + data.error, 'danger');
         }
@@ -98,13 +154,18 @@ function displayShipments(shipments) {
         const statusClass = {
             'в пути': 'warning',
             'в наличии': 'success',
-            'завершена': 'secondary'
+            'продано': 'secondary',
+            'завершена': 'info'
         }[shipment.status] || 'info';
         
         const hasItems = shipment.total_items > 0;
         const itemsText = hasItems ? 
             `${shipment.total_items} товар(ов)` : 
             '<span class="text-danger">Нет товаров</span>';
+        
+        // Рассчитываем общую сумму доставки и товаров
+        const deliveryCost = shipment.delivery_cost || 0;
+        const canUpdateStatus = shipment.status === 'в пути';
         
         html += `
         <div class="col-md-6 mb-3">
@@ -115,7 +176,8 @@ function displayShipments(shipments) {
                 </div>
                 <div class="card-body">
                     <p><i class="fas fa-calendar"></i> <strong>Дата заказа:</strong> ${shipment.order_date}</p>
-                    <p><i class="fas fa-truck"></i> <strong>Доставка:</strong> ${shipment.delivery_cost} BYN</p>
+                    ${shipment.delivery_cost > 0 ? 
+                      `<p><i class="fas fa-truck"></i> <strong>Доставка:</strong> ${shipment.delivery_cost} BYN</p>` : ''}
                     <p><i class="fas fa-flag"></i> <strong>Статус:</strong> 
                         <span class="badge bg-${statusClass}">${shipment.status}</span>
                     </p>
@@ -126,11 +188,12 @@ function displayShipments(shipments) {
                     <div class="btn-group btn-group-sm mt-2 w-100">
                         <button class="btn btn-outline-primary" 
                                 onclick="showAddItemsToShipment(${shipment.id}, '${shipment.shipment_number}')"
-                                ${shipment.status === 'в наличии' ? 'disabled' : ''}>
+                                ${shipment.status === 'в наличии' || shipment.status === 'продано' ? 'disabled' : ''}>
                             <i class="fas fa-plus"></i> Товары
                         </button>
                         <button class="btn btn-outline-warning" 
-                                onclick="showUpdateShipmentStatusModal(${shipment.id}, '${shipment.status}')">
+                                onclick="showUpdateShipmentStatusModal(${shipment.id}, '${shipment.status}', ${deliveryCost})"
+                                ${!canUpdateStatus ? 'disabled' : ''}>
                             <i class="fas fa-sync"></i> Статус
                         </button>
                         <button class="btn btn-outline-info" 
@@ -170,7 +233,7 @@ function addItemsToShipment() {
         return;
     }
     
-    // Парсим товары (каждая строка = один товар)
+    // Парсим товары
     const lines = itemsText.split('\n').filter(line => line.trim());
     const items = [];
     const errors = [];
@@ -223,8 +286,7 @@ function addItemsToShipment() {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-            items: items,
-            status: document.getElementById('itemsStatus').value
+            items: items
         })
     })
     .then(response => response.json())
@@ -234,13 +296,9 @@ function addItemsToShipment() {
             showToast(`Добавлено ${data.added_count} товаров в поставку ${currentShipmentNumber}`, 'success');
             bootstrap.Modal.getInstance(document.getElementById('addItemsModal')).hide();
             loadShipments();
-            // Обновляем таблицу товаров через 1 секунду
+            
             setTimeout(() => {
-                if (typeof updateItemTable === 'function') {
-                    updateItemTable();
-                } else {
-                    location.reload();
-                }
+                location.reload();
             }, 1000);
         } else {
             showToast('Ошибка: ' + data.error, 'danger');
@@ -253,23 +311,34 @@ function addItemsToShipment() {
 }
 
 // Показать модальное окно изменения статуса поставки
-function showUpdateShipmentStatusModal(shipmentId, currentStatus) {
+function showUpdateShipmentStatusModal(shipmentId, currentStatus, currentDeliveryCost) {
     currentShipmentId = shipmentId;
     
     const modal = new bootstrap.Modal(document.getElementById('updateShipmentStatusModal'));
     const statusSelect = document.getElementById('newShipmentStatus');
     const dateGroup = document.getElementById('receivedDateGroup');
+    const deliveryCostGroup = document.getElementById('deliveryCostGroup');
+    const deliveryCostInput = document.getElementById('shipmentDeliveryCost');
     
     // Устанавливаем текущий статус
     statusSelect.value = currentStatus;
     
-    // Показываем/скрываем поле даты получения
+    // Устанавливаем текущую стоимость доставки
+    if (deliveryCostInput) {
+        deliveryCostInput.value = currentDeliveryCost || 0;
+    }
+    
+    // Показываем/скрываем поля
     statusSelect.addEventListener('change', function() {
-        dateGroup.style.display = this.value === 'в наличии' ? 'block' : 'none';
+        const showFields = this.value === 'в наличии';
+        if (dateGroup) dateGroup.style.display = showFields ? 'block' : 'none';
+        if (deliveryCostGroup) deliveryCostGroup.style.display = showFields ? 'block' : 'none';
     });
     
     // Инициализируем состояние
-    dateGroup.style.display = currentStatus === 'в наличии' ? 'block' : 'none';
+    const showFields = currentStatus === 'в наличии';
+    if (dateGroup) dateGroup.style.display = showFields ? 'block' : 'none';
+    if (deliveryCostGroup) deliveryCostGroup.style.display = showFields ? 'block' : 'none';
     
     modal.show();
 }
@@ -277,16 +346,22 @@ function showUpdateShipmentStatusModal(shipmentId, currentStatus) {
 // Подтвердить изменение статуса поставки
 function confirmUpdateShipmentStatus() {
     const newStatus = document.getElementById('newShipmentStatus').value;
-    const receivedDate = newStatus === 'в наличии' ? 
-        document.getElementById('shipmentReceivedDate').value : 
-        null;
+    const receivedDate = document.getElementById('shipmentReceivedDate').value;
+    const deliveryCost = parseFloat(document.getElementById('shipmentDeliveryCost').value) || 0;
     
-    if (newStatus === 'в наличии' && !receivedDate) {
-        showToast('Укажите дату получения', 'warning');
-        return;
+    if (newStatus === 'в наличии') {
+        if (!receivedDate) {
+            showToast('Укажите дату получения', 'warning');
+            return;
+        }
+        
+        if (deliveryCost < 0) {
+            showToast('Стоимость доставки не может быть отрицательной', 'warning');
+            return;
+        }
     }
     
-    if (!confirm(`Вы уверены, что хотите изменить статус поставки на "${newStatus}"? Все товары в поставке также изменят свой статус.`)) {
+    if (!confirm(`Изменить статус поставки на "${newStatus}"? ${deliveryCost > 0 ? `Стоимость доставки: ${deliveryCost} BYN будет добавлена как отдельная транзакция.` : ''}`)) {
         return;
     }
     
@@ -297,7 +372,8 @@ function confirmUpdateShipmentStatus() {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
             status: newStatus,
-            received_date: receivedDate
+            received_date: receivedDate,
+            delivery_cost: deliveryCost
         })
     })
     .then(response => response.json())
@@ -307,13 +383,9 @@ function confirmUpdateShipmentStatus() {
             showToast(`Статус поставки изменен на "${newStatus}"`, 'success');
             bootstrap.Modal.getInstance(document.getElementById('updateShipmentStatusModal')).hide();
             loadShipments();
-            // Обновляем таблицу товаров через 1 секунду
+            
             setTimeout(() => {
-                if (typeof updateItemTable === 'function') {
-                    updateItemTable();
-                } else {
-                    location.reload();
-                }
+                location.reload();
             }, 1000);
         } else {
             showToast('Ошибка: ' + data.error, 'danger');
@@ -344,7 +416,6 @@ function showShipmentItems(shipmentId, shipmentNumber) {
 
 // Отобразить товары поставки
 function displayShipmentItems(items, shipmentId, shipmentNumber) {
-    // Создаем модальное окно
     const modalId = `shipment-items-${shipmentId}`;
     let modalDiv = document.getElementById(modalId);
     
@@ -373,14 +444,12 @@ function displayShipmentItems(items, shipmentId, shipmentNumber) {
         document.body.appendChild(modalDiv);
     }
     
-    // Заполняем контент
     const contentDiv = document.getElementById(`${modalId}-content`);
     let html = '';
     
     if (!items || items.length === 0) {
         html = '<div class="alert alert-info">Нет товаров в этой поставке</div>';
     } else {
-        // Статистика
         const totalCost = items.reduce((sum, item) => sum + parseFloat(item.cost_price || 0), 0);
         const totalSell = items.reduce((sum, item) => sum + parseFloat(item.manual_price || item.sell_price || 0), 0);
         const totalProfit = totalSell - totalCost;
@@ -425,17 +494,23 @@ function displayShipmentItems(items, shipmentId, shipmentNumber) {
             const statusClass = {
                 'в наличии': 'success',
                 'в пути': 'warning',
+                'зарезервировано': 'info',
                 'продано': 'danger',
-                'взял себе': 'info'
+                'взял себе': 'primary'
             }[item.status] || 'secondary';
             
             const displayPrice = item.manual_price || item.sell_price;
-            const dateDisplay = item.status === 'в наличии' ? 
-                (item.date_arrived ? item.date_arrived.slice(0, 10) : '—') :
-                (item.status === 'продано' ? 
-                    (item.date_sold ? item.date_sold.slice(0, 10) : '—') :
-                    (item.status === 'взял себе' ? 
-                        (item.date_taken ? item.date_taken.slice(0, 10) : '—') : '—'));
+            
+            let dateDisplay = '—';
+            if (item.status === 'в наличии' && item.date_arrived) {
+                dateDisplay = item.date_arrived.slice(0, 10);
+            } else if (item.status === 'продано' && item.date_sold) {
+                dateDisplay = item.date_sold.slice(0, 10);
+            } else if (item.status === 'взял себе' && item.date_taken) {
+                dateDisplay = item.date_taken.slice(0, 10);
+            } else if (item.status === 'зарезервировано' && item.date_reserved) {
+                dateDisplay = item.date_reserved.slice(0, 10);
+            }
             
             html += `
             <tr>
@@ -483,7 +558,6 @@ function displayShipmentItems(items, shipmentId, shipmentNumber) {
     
     contentDiv.innerHTML = html;
     
-    // Показываем модальное окно
     const modal = new bootstrap.Modal(modalDiv);
     modal.show();
 }
@@ -525,7 +599,7 @@ function updateItemPrice(itemId) {
     });
 }
 
-// Удалить товар (ТОЛЬКО ДЛЯ ТЕСТИРОВАНИЯ)
+// Удалить товар
 function deleteItem(itemId, itemName) {
     if (!confirm(`ВНИМАНИЕ: Вы собираетесь удалить товар "${itemName}". Это действие нельзя отменить. Продолжить?`)) {
         return;
@@ -542,7 +616,6 @@ function deleteItem(itemId, itemName) {
         hideLoading();
         if (data.success) {
             showToast('Товар удален', 'success');
-            // Закрываем модальное окно и обновляем данные
             const modal = bootstrap.Modal.getInstance(document.querySelector('.modal.show'));
             if (modal) modal.hide();
             
@@ -565,6 +638,26 @@ function deleteItem(itemId, itemName) {
 
 // Показать модальное окно добавления отдельного товара
 function showAddSingleItemModal() {
+    // Загружаем список поставок для выбора
+    fetch('/seller/shipments')
+        .then(response => response.json())
+        .then(data => {
+            if (data.shipments) {
+                const shipmentSelect = document.getElementById('singleItemShipment');
+                if (shipmentSelect) {
+                    shipmentSelect.innerHTML = '<option value="">Не привязывать к поставке</option>';
+                    data.shipments.forEach(shipment => {
+                        if (shipment.status === 'в пути') {
+                            shipmentSelect.innerHTML += `
+                                <option value="${shipment.id}">${shipment.shipment_number} (${shipment.status})</option>
+                            `;
+                        }
+                    });
+                }
+            }
+        })
+        .catch(error => console.error('Ошибка загрузки поставок:', error));
+    
     const modal = new bootstrap.Modal(document.getElementById('addSingleItemModal'));
     modal.show();
 }
@@ -575,6 +668,7 @@ function addSingleItem() {
     const costPrice = parseFloat(document.getElementById('singleItemCostPrice').value);
     const sellPrice = parseFloat(document.getElementById('singleItemSellPrice').value);
     const status = document.getElementById('singleItemStatus').value;
+    const shipmentId = document.getElementById('singleItemShipment').value || null;
     
     if (!name) {
         showToast('Введите название товара', 'warning');
@@ -593,15 +687,15 @@ function addSingleItem() {
     
     showLoading('Добавление товара...');
     
-    // Используем существующий маршрут добавления товара
-    fetch('/seller/add', {
+    fetch('/seller/items/add_with_shipment', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
             name: name,
             cost_price: costPrice,
             sell_price: sellPrice,
-            status: status
+            status: status,
+            shipment_id: shipmentId
         })
     })
     .then(response => response.json())
@@ -610,6 +704,45 @@ function addSingleItem() {
         if (data.success) {
             showToast(`Товар добавлен! ID: ${data.id}`, 'success');
             bootstrap.Modal.getInstance(document.getElementById('addSingleItemModal')).hide();
+            location.reload();
+        } else {
+            showToast('Ошибка: ' + data.error, 'danger');
+        }
+    })
+    .catch(error => {
+        hideLoading();
+        showToast('Ошибка сети: ' + error, 'danger');
+    });
+}
+
+// Обновить статус товара
+function updateStatus(itemId, currentStatus) {
+    const statuses = ['в пути', 'в наличии', 'зарезервировано', 'продано', 'взял себе'];
+    const currentIndex = statuses.indexOf(currentStatus);
+    
+    let newStatus;
+    if (currentIndex >= 0 && currentIndex < statuses.length - 1) {
+        newStatus = statuses[currentIndex + 1];
+    } else {
+        newStatus = statuses[0];
+    }
+    
+    if (!confirm(`Изменить статус с "${currentStatus}" на "${newStatus}"?`)) {
+        return;
+    }
+    
+    showLoading('Обновление статуса...');
+    
+    fetch('/seller/update/' + itemId, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({status: newStatus})
+    })
+    .then(response => response.json())
+    .then(data => {
+        hideLoading();
+        if (data.success) {
+            showToast('Статус обновлён!', 'success');
             location.reload();
         } else {
             showToast('Ошибка: ' + data.error, 'danger');
@@ -637,7 +770,6 @@ function toggleDeleteMode() {
         btn.innerHTML = '<i class="fas fa-trash"></i> Режим удаления (тест)';
     }
     
-    // Обновляем отображение кнопок в открытых модальных окнах
     if (currentShipmentId) {
         showShipmentItems(currentShipmentId, currentShipmentNumber);
     }
@@ -666,7 +798,7 @@ function showToast(message, type = 'info', duration = 3000) {
     </div>
     `;
     
-    const container = document.getElementById('toast-container');
+    let container = document.getElementById('toast-container');
     if (!container) {
         const newContainer = document.createElement('div');
         newContainer.id = 'toast-container';
@@ -678,7 +810,6 @@ function showToast(message, type = 'info', duration = 3000) {
     
     container.insertAdjacentHTML('beforeend', toastHTML);
     
-    // Автоматическое удаление
     setTimeout(() => {
         const toast = document.getElementById(toastId);
         if (toast) {
@@ -744,7 +875,6 @@ function formatDateTime(dateTimeStr) {
 
 // Инициализация при загрузке страницы
 document.addEventListener('DOMContentLoaded', function() {
-    // Добавляем обработчики для кнопок управления поставками
     const addShipmentBtn = document.getElementById('add-shipment-btn');
     if (addShipmentBtn) {
         addShipmentBtn.addEventListener('click', showAddShipmentModal);
@@ -765,14 +895,15 @@ document.addEventListener('DOMContentLoaded', function() {
         addSingleItemBtn.addEventListener('click', showAddSingleItemModal);
     }
     
-    // Добавляем обработчик изменения статуса для поля выбора статуса
     const statusSelect = document.getElementById('newShipmentStatus');
     if (statusSelect) {
         statusSelect.addEventListener('change', function() {
             const dateGroup = document.getElementById('receivedDateGroup');
-            if (dateGroup) {
-                dateGroup.style.display = this.value === 'в наличии' ? 'block' : 'none';
-            }
+            const deliveryCostGroup = document.getElementById('deliveryCostGroup');
+            const showFields = this.value === 'в наличии';
+            if (dateGroup) dateGroup.style.display = showFields ? 'block' : 'none';
+            if (deliveryCostGroup) deliveryCostGroup.style.display = showFields ? 'block' : 'none';
         });
     }
 });
+[file content end]
