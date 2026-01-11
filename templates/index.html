@@ -1,3 +1,5 @@
+[file name]: index.html
+[file content begin]
 {% extends "base.html" %}
 
 {% block title %}Магазин - Главная{% endblock %}
@@ -11,7 +13,7 @@
             <div class="card h-100">
                 <div class="card-body">
                     <h3 class="card-title"><i class="fas fa-shopping-cart text-primary"></i> Покупатель</h3>
-                    <p class="card-text">Просмотр товаров, выбор, оформление</p>
+                    <p class="card-text">Просмотр товаров в наличии</p>
                     <a href="/buyer" class="btn btn-primary btn-lg">
                         <i class="fas fa-eye"></i> Смотреть каталог
                     </a>
@@ -34,8 +36,11 @@
     
     <div class="mt-5 alert alert-info">
         <h4><i class="fas fa-info-circle"></i> Как это работает:</h4>
-        <p>1. <strong>Покупатели</strong> видят каталог товаров<br>
-           2. <strong>Продавцы</strong> входят с паролем и управляют товарами<br>
+        <p>1. <strong>Покупатели</strong> видят только товары "в наличии"<br>
+           2. <strong>Продавцы</strong> управляют товарами, поставками и статусами<br>
+           3. <strong>Поставки</strong> создаются с товарами, доставка учитывается отдельно<br>
+           4. <strong>Статусы товаров</strong>: в пути → в наличии → зарезервировано → продано</p>
     </div>
 </div>
 {% endblock %}
+[file content end]
