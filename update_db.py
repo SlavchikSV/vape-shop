@@ -1,3 +1,5 @@
+[file name]: update_db.py
+[file content begin]
 #!/usr/bin/env python3
 """
 Скрипт для обновления базы данных
@@ -45,13 +47,23 @@ def update_database():
             print("💰 Добавляю столбец manual_price...")
             cursor.execute('ALTER TABLE items ADD COLUMN manual_price REAL')
         
-        # Проверяем существование столбца shipment_id в items
         if 'shipment_id' not in columns:
             print("📦 Добавляю столбец shipment_id...")
             cursor.execute('ALTER TABLE items ADD COLUMN shipment_id INTEGER')
             
-            # Создаем индекс для ускорения поиска
-            cursor.execute('CREATE INDEX idx_items_shipment ON items(shipment_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_items_shipment ON items(shipment_id)')
+        
+        if 'date_reserved' not in columns:
+            print("⏰ Добавляю столбец date_reserved...")
+            cursor.execute('ALTER TABLE items ADD COLUMN date_reserved TEXT')
+        
+        # Проверяем столбец shipment_id в transactions
+        cursor.execute("PRAGMA table_info(transactions);")
+        trans_columns = [col[1] for col in cursor.fetchall()]
+        
+        if 'shipment_id' not in trans_columns:
+            print("📦 Добавляю столбец shipment_id в transactions...")
+            cursor.execute('ALTER TABLE transactions ADD COLUMN shipment_id INTEGER')
         
         # Проверяем существование таблицы sellers
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sellers';")
@@ -74,6 +86,7 @@ def update_database():
             default_sellers = [
                 ('SlavchikSV', 'sv280606', 'Администратор', 'admin'),
                 ('mkozlov', '020988mama', 'Главный администратор', 'admin'),
+                ('g_nix', 'IHHujhg655G', 'Продавец G_Nix', 'seller'),
             ]
             
             for username, password, display, role in default_sellers:
@@ -86,7 +99,6 @@ def update_database():
         conn.commit()
         print("✅ База данных успешно обновлена!")
         
-        # Показываем текущую структуру
         print("\n📊 Текущая структура базы данных:")
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
         tables = cursor.fetchall()
@@ -101,3 +113,4 @@ def update_database():
 
 if __name__ == '__main__':
     update_database()
+[file content end]
