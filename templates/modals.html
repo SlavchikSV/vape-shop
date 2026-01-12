@@ -1,0 +1,239 @@
+<!-- Модальное окно добавления поставки -->
+<div class="modal fade" id="addShipmentModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title">
+                    <i class="fas fa-truck-loading"></i> Новая поставка
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="shipmentForm">
+                    <div class="mb-3">
+                        <label class="form-label">Дата заказа поставки:</label>
+                        <input type="date" class="form-control" id="shipmentOrderDate" 
+                               value="{{ now.strftime('%Y-%m-%d') }}" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Товары в поставке:</label>
+                        <textarea class="form-control" id="itemsTextArea" 
+                                  rows="10" 
+                                  placeholder="Catswill salt - кислые яблочные червячки, 10.5, 14&#10;ZLOY - апельсин, 10.5, 14&#10;Catswill Extra - черешня-малина, 10.5, 15"
+                                  required></textarea>
+                        <small class="form-text text-muted">
+                            Каждая строка = отдельный товар. Формат: Название, Себестоимость, Цена продажи
+                        </small>
+                    </div>
+                    
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i>
+                        <strong>Все товары получат статус "в пути"</strong><br>
+                        <strong>Стоимость доставки будет указана позже</strong> при изменении статуса поставки на "в наличии"
+                    </div>
+                    
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <strong>Номер поставки будет сгенерирован автоматически</strong><br>
+                        Формат: SHIP-001, SHIP-002 и т.д.
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-primary" onclick="createShipment()">
+                    <i class="fas fa-check"></i> Создать поставку
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для добавления товаров в существующую поставку -->
+<div class="modal fade" id="addItemsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-info text-white">
+                <h5 class="modal-title">
+                    <i class="fas fa-boxes"></i> Добавить товары в поставку
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info mb-3">
+                    <i class="fas fa-info-circle"></i>
+                    <strong>Формат ввода:</strong> Каждый товар на новой строке<br>
+                    <strong>Синтаксис:</strong> Название, Себестоимость, Цена продажи<br>
+                    <strong>Пример:</strong> <code>Podonki - яблочные червячки, 10.5, 15</code>
+                </div>
+                
+                <div class="mb-3">
+                    <label class="form-label">Товары:</label>
+                    <textarea class="form-control" id="itemsTextArea" 
+                              rows="10" 
+                              placeholder="Catswill salt - кислые яблочные червячки, 10.5, 14&#10;ZLOY - апельсин, 10.5, 14&#10;Catswill Extra - черешня-малина, 10.5, 15"></textarea>
+                    <small class="form-text text-muted">
+                        Каждая строка = отдельный товар
+                    </small>
+                </div>
+                
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <strong>Внимание:</strong> Товары получат статус поставки
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-primary" onclick="addItemsToShipment()">
+                    <i class="fas fa-plus-circle"></i> Добавить товары
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно добавления отдельного товара -->
+<div class="modal fade" id="addSingleItemModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title">
+                    <i class="fas fa-plus-circle"></i> Добавить отдельный товар
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="singleItemForm">
+                    <div class="mb-3">
+                        <label class="form-label">Название товара:</label>
+                        <input type="text" class="form-control" id="singleItemName" 
+                               placeholder="Например: Podonki - яблочные червячки" required>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Себестоимость (BYN):</label>
+                            <div class="input-group">
+                                <input type="number" class="form-control" id="singleItemCostPrice" 
+                                       step="0.01" min="0" required>
+                                <span class="input-group-text">BYN</span>
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Цена продажи (BYN):</label>
+                            <div class="input-group">
+                                <input type="number" class="form-control" id="singleItemSellPrice" 
+                                       step="0.01" min="0" required>
+                                <span class="input-group-text">BYN</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Статус:</label>
+                            <select class="form-control" id="singleItemStatus" required>
+                                <option value="в наличии">в наличии</option>
+                                <option value="в пути">в пути</option>
+                                <option value="зарезервировано">зарезервировано</option>
+                                <option value="продано">продано</option>
+                                <option value="взял себе">взял себе</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Привязать к поставке:</label>
+                            <select class="form-control" id="singleItemShipment">
+                                <option value="">Не привязывать к поставке</option>
+                                <!-- Опции будут заполнены JavaScript -->
+                            </select>
+                            <small class="form-text text-muted">
+                                Только поставки со статусом "в пути"
+                            </small>
+                        </div>
+                    </div>
+                    
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i>
+                        <strong>Примечание:</strong> Если товар привязан к поставке, его статус будет соответствовать статусу поставки.
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-success" onclick="addSingleItem()">
+                    <i class="fas fa-check"></i> Добавить товар
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно изменения статуса поставки -->
+<div class="modal fade" id="updateShipmentStatusModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-warning">
+                <h5 class="modal-title">
+                    <i class="fas fa-sync"></i> Изменить статус поставки
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="updateStatusForm">
+                    <div class="mb-3">
+                        <label class="form-label">Новый статус:</label>
+                        <select class="form-control" id="newShipmentStatus" required>
+                            <option value="в пути">в пути</option>
+                            <option value="в наличии">в наличии</option>
+                            <option value="продано">продано</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3" id="receivedDateGroup" style="display: none;">
+                        <label class="form-label">Дата получения:</label>
+                        <input type="date" class="form-control" id="shipmentReceivedDate" 
+                               value="{{ now.strftime('%Y-%m-%d') }}" required>
+                        <small class="form-text text-muted">
+                            Укажите, когда поставка фактически поступила на склад
+                        </small>
+                    </div>
+                    
+                    <div class="mb-3" id="deliveryCostGroup" style="display: none;">
+                        <label class="form-label">Стоимость доставки (BYN):</label>
+                        <div class="input-group">
+                            <input type="number" class="form-control" id="shipmentDeliveryCost" 
+                                   value="0" step="0.01" min="0" required>
+                            <span class="input-group-text">BYN</span>
+                        </div>
+                        <small class="form-text text-muted">
+                            Эта сумма будет добавлена как отдельная транзакция
+                        </small>
+                    </div>
+                    
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i>
+                        При смене статуса на "в наличии":<br>
+                        1. Все товары в поставке получат статус "в наличии"<br>
+                        2. Будет добавлена транзакция доставки<br>
+                        3. Будут добавлены транзакции покупки для каждого товара
+                    </div>
+                    
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        Статус можно изменить только один раз: с "в пути" на "в наличии"
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-warning" onclick="confirmUpdateShipmentStatus()">
+                    <i class="fas fa-check"></i> Обновить статус
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Toast-контейнер для уведомлений -->
+<div id="toast-container" class="position-fixed bottom-0 end-0 p-3" style="z-index: 1060;"></div>

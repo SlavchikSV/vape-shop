@@ -1,0 +1,245 @@
+{% extends "base.html" %}
+
+{% block title %}Каталог товаров{% endblock %}
+
+{% block scripts %}
+<script>
+    // Автоматическое обновление списка активных продавцов каждые 10 секунд
+    function updateActiveSellers() {
+        fetch('/buyer/active_sellers')
+            .then(response => {
+                if (!response.ok) throw new Error('Ошибка сети');
+                return response.json();
+            })
+            .then(data => {
+                console.log('Получены данные продавцов:', data);
+                
+                if (data.active_sellers && data.active_sellers.length > 0) {
+                    updateActiveSellersList(data.active_sellers);
+                    updateActiveCount(data.active_sellers.length);
+                    updateLiveStatus(true);
+                } else {
+                    updateActiveSellersList([]);
+                    updateActiveCount(0);
+                    updateLiveStatus(false);
+                }
+            })
+            .catch(error => {
+                console.error('Ошибка обновления продавцов:', error);
+                updateActiveSellersList([]);
+                updateActiveCount(0);
+                updateLiveStatus(false);
+            });
+    }
+    
+    // Обновление списка продавцов
+    function updateActiveSellersList(sellers) {
+        const container = document.getElementById('active-sellers-list');
+        const titleElement = document.getElementById('active-sellers-title');
+        
+        if (!container) return;
+        
+        if (!sellers || sellers.length === 0) {
+            container.innerHTML = `
+            <div class="text-center text-muted py-2">
+                <i class="fas fa-user-slash"></i> 
+                <span class="ms-2">Нет активных продавцов</span>
+            </div>
+            `;
+            
+            if (titleElement) {
+                titleElement.textContent = 'Продавцы:';
+            }
+            
+            return;
+        }
+        
+        if (titleElement) {
+            titleElement.textContent = 'Сейчас работают:';
+        }
+        
+        let html = '';
+        sellers.forEach(seller => {
+            html += `
+            <span class="badge bg-light text-dark me-2 mb-2">
+                <i class="fas fa-user"></i> ${seller.display_name || seller.username}
+                <small class="text-muted">(с ${seller.login_time_short})</small>
+            </span>
+            `;
+        });
+        
+        container.innerHTML = html;
+    }
+    
+    // Обновление LIVE статуса
+    function updateLiveStatus(hasSellers) {
+        const liveBadge = document.getElementById('live-badge');
+        const liveDot = document.getElementById('live-dot');
+        const liveText = document.getElementById('live-text');
+        
+        if (!liveBadge || !liveText) return;
+        
+        if (hasSellers) {
+            liveBadge.classList.remove('bg-secondary');
+            liveBadge.classList.add('bg-success');
+            liveText.textContent = 'LIVE';
+            
+            if (liveDot) {
+                liveDot.style.animation = 'smooth-pulse 1.5s ease-in-out infinite';
+            }
+        } else {
+            liveBadge.classList.remove('bg-success');
+            liveBadge.classList.add('bg-secondary');
+            liveText.textContent = 'OFFLINE';
+            
+            if (liveDot) {
+                liveDot.style.animation = 'none';
+                liveDot.style.opacity = '0.5';
+            }
+        }
+    }
+    
+    // Плавная анимация счетчика
+    function animateCounter(element, newValue, duration = 300) {
+        if (!element) return;
+        
+        const currentValue = parseInt(element.textContent) || 0;
+        if (currentValue === newValue) return;
+        
+        const increment = newValue > currentValue ? 1 : -1;
+        const steps = Math.abs(newValue - currentValue);
+        const stepDuration = duration / steps;
+        
+        let current = currentValue;
+        const timer = setInterval(() => {
+            current += increment;
+            element.textContent = current;
+            
+            if (current === newValue) {
+                clearInterval(timer);
+            }
+        }, stepDuration);
+    }
+    
+    // Обновление счетчика
+    function updateActiveCount(sellerCount) {
+        const countElement = document.querySelector('.active-sellers-count');
+        
+        const count = typeof sellerCount === 'number' ? sellerCount : 0;
+        
+        if (countElement) {
+            animateCounter(countElement, count);
+        }
+    }
+    
+    // Инициализация
+    document.addEventListener('DOMContentLoaded', function() {
+        setInterval(updateActiveSellers, 10000);
+        setTimeout(updateActiveSellers, 1000);
+    });
+</script>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 class="text-center mb-4">🛒 Каталог товаров</h1>
+    
+    <div class="alert alert-info d-flex justify-content-between align-items-center">
+        <div>
+            <i class="fas fa-info-circle"></i> Товаров в наличии: <strong>{{ total }}</strong>
+        </div>
+        <div>
+            <!-- Этот счетчик будет обновляться AJAX -->
+            <span class="badge bg-success">
+                <i class="fas fa-user-tie"></i> Продавцы онлайн: 
+                <span class="active-sellers-count">
+                    {% if active_sellers %}{{ active_sellers|length }}{% else %}0{% endif %}
+                </span>
+            </span>
+            <span class="badge bg-success ms-2">В наличии: {{ in_stock|length }}</span>
+        </div>
+    </div>
+    
+    <!-- Блок активных продавцов (ВСЕГДА ВИДИМЫЙ) -->
+    <div class="alert alert-success mb-3">
+        <h6>
+            <i class="fas fa-user-tie"></i> 
+            <span id="active-sellers-title">
+                {% if active_sellers %}
+                    Сейчас работают:
+                {% else %}
+                    Продавцы:
+                {% endif %}
+            </span>
+            <small id="live-status" class="ms-2">
+                <span id="live-badge" class="badge 
+                    {% if active_sellers %}bg-success{% else %}bg-secondary{% endif %} 
+                    badge-pill">
+                    <i id="live-dot" class="fas fa-circle"></i> 
+                    <span id="live-text" class="ms-1">
+                        {% if active_sellers %}LIVE{% else %}OFFLINE{% endif %}
+                    </span>
+                </span>
+            </small>
+        </h6>
+        <div id="active-sellers-list" class="d-flex flex-wrap gap-2">
+            {% if active_sellers %}
+                {% for seller in active_sellers %}
+                <span class="badge bg-light text-dark">
+                    <i class="fas fa-user"></i> {{ seller.display_name or seller.username }}
+                    <small class="text-muted">(с {{ seller.login_time_short }})</small>
+                </span>
+                {% endfor %}
+            {% else %}
+                <div class="text-center text-muted w-100 py-2">
+                    <i class="fas fa-user-slash"></i> Нет активных продавцов
+                </div>
+            {% endif %}
+        </div>
+    </div>
+    
+    <!-- ТОВАРЫ В НАЛИЧИИ -->
+    {% if in_stock %}
+    <div class="card mb-4">
+        <div class="card-header bg-success text-white">
+            <h4><i class="fas fa-box"></i> Товары в наличии ({{ in_stock|length }})</h4>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                {% for item in in_stock %}
+                <div class="col-md-4 mb-3">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <h5 class="card-title">{{ item.name }}</h5>
+                            <p class="card-text">
+                                <span class="badge bg-success">В наличии</span><br>
+                                <span class="badge bg-primary mt-2">Цена: {{ item.display_price }} BYN</span>
+                            </p>
+                        </div>
+                        <div class="card-footer">
+                            <small class="text-muted">
+                                <i class="fas fa-calendar"></i> Поступил: {{ item.date_arrived[:10] if item.date_arrived else '—' }}
+                            </small>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="alert alert-warning mb-4">
+        <h4><i class="fas fa-exclamation-triangle"></i> Нет товаров в наличии</h4>
+        <p>Скоро появятся новые поставки!</p>
+    </div>
+    {% endif %}
+    
+    {% if not in_stock %}
+    <div class="alert alert-danger text-center">
+        <h4><i class="fas fa-exclamation-triangle"></i> Каталог пуст!</h4>
+        <p>В данный момент нет доступных товаров.</p>
+    </div>
+    {% endif %}
+    
+</div>
+{% endblock %}
