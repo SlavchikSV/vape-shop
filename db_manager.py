@@ -258,105 +258,119 @@ class GitHubDBManager:
             print(f"⚠️ Ошибка очистки бэкапов: {e}")
     
     def create_new_database(self):
-        """Создает новую базу данных с базовой структурой"""
-        bcrypt = Bcrypt()
-        
-        conn = sqlite3.connect(self.db_name)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        
-        # Таблица продавцов
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS sellers (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            display_name TEXT,
-            role TEXT DEFAULT 'seller',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        ''')
-        
-        # Таблица товаров
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS items (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            cost_price REAL NOT NULL,
-            sell_price REAL NOT NULL,
-            status TEXT NOT NULL DEFAULT 'в наличии',
-            shipment_id INTEGER,
-            date_arrived TEXT,
-            date_sold TEXT,
-            date_taken TEXT,
-            date_reserved TEXT,
-            manual_price REAL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        ''')
-        
-        # Таблица транзакций
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS transactions (
-            tx_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            date TEXT NOT NULL,
-            type TEXT NOT NULL,
-            item_id INTEGER,
-            shipment_id INTEGER,
-            amount REAL,
-            note TEXT
-        )
-        ''')
-        
-        # Таблица действий
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS action_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            seller_id INTEGER,
-            action_type TEXT NOT NULL,
-            item_id INTEGER,
-            details TEXT,
-            ip_address TEXT,
-            user_agent TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        ''')
-        
-        # Таблица поставок
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS shipments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            shipment_number TEXT UNIQUE NOT NULL,
-            order_date TEXT NOT NULL,
-            received_date TEXT,
-            delivery_cost REAL DEFAULT 0,
-            status TEXT DEFAULT 'в пути',
-            total_items INTEGER DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        ''')
-        
-        # Добавляем продавцов
-        default_sellers = [
-            ('SlavchikSV', 'sv280606', 'Администратор', 'admin'),
-            ('mkozlov', '020988mama', 'Главный администратор', 'admin'),
-            ('g_nix', 'IHHujhg655G', 'Продавец G_Nix', 'seller'),
-        ]
-        
-        for username, password, display, role in default_sellers:
-            cursor.execute('SELECT id FROM sellers WHERE username = ?', (username,))
-            if not cursor.fetchone():
-                password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
-                cursor.execute('''
-                INSERT INTO sellers (username, password_hash, display_name, role)
-                VALUES (?, ?, ?, ?)
-                ''', (username, password_hash, display, role))
-                print(f"✅ Добавлен продавец: {username}")
-        
-        conn.commit()
-        conn.close()
-        print(f"✅ Новая база создана: {self.db_name}")
+    """Создает новую базу данных с базовой структурой"""
+    bcrypt = Bcrypt()
+    
+    conn = sqlite3.connect(self.db_name)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    # Таблица продавцов
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS sellers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        display_name TEXT,
+        role TEXT DEFAULT 'seller',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+    
+    # ТАБЛИЦА АКТИВНЫХ СЕССИЙ - ДОБАВЬТЕ ЭТУ ЧАСТЬ
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS active_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        seller_id INTEGER NOT NULL,
+        session_token TEXT UNIQUE NOT NULL,
+        ip_address TEXT,
+        user_agent TEXT,
+        login_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        is_active BOOLEAN DEFAULT 1
+    )
+    ''')
+    
+    # Таблица товаров
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        cost_price REAL NOT NULL,
+        sell_price REAL NOT NULL,
+        status TEXT NOT NULL DEFAULT 'в наличии',
+        shipment_id INTEGER,
+        date_arrived TEXT,
+        date_sold TEXT,
+        date_taken TEXT,
+        date_reserved TEXT,
+        manual_price REAL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+    
+    # Таблица транзакций
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS transactions (
+        tx_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        type TEXT NOT NULL,
+        item_id INTEGER,
+        shipment_id INTEGER,
+        amount REAL,
+        note TEXT
+    )
+    ''')
+    
+    # Таблица действий
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS action_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        seller_id INTEGER,
+        action_type TEXT NOT NULL,
+        item_id INTEGER,
+        details TEXT,
+        ip_address TEXT,
+        user_agent TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+    
+    # Таблица поставок
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS shipments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        shipment_number TEXT UNIQUE NOT NULL,
+        order_date TEXT NOT NULL,
+        received_date TEXT,
+        delivery_cost REAL DEFAULT 0,
+        status TEXT DEFAULT 'в пути',
+        total_items INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+    
+    # Добавляем продавцов
+    default_sellers = [
+        ('SlavchikSV', 'sv280606', 'Администратор', 'admin'),
+        ('mkozlov', '020988mama', 'Главный администратор', 'admin'),
+        ('g_nix', 'IHHujhg655G', 'Продавец G_Nix', 'seller'),
+    ]
+    
+    for username, password, display, role in default_sellers:
+        cursor.execute('SELECT id FROM sellers WHERE username = ?', (username,))
+        if not cursor.fetchone():
+            password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
+            cursor.execute('''
+            INSERT INTO sellers (username, password_hash, display_name, role)
+            VALUES (?, ?, ?, ?)
+            ''', (username, password_hash, display, role))
+            print(f"✅ Добавлен продавец: {username}")
+    
+    conn.commit()
+    conn.close()
+    print(f"✅ Новая база создана: {self.db_name}")
     
     def start_auto_save(self, interval_minutes=3):
         """Запускает автоматическое сохранение каждые N минут"""
