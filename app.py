@@ -431,7 +431,14 @@ def db_status():
         'last_save': db_manager.last_save_time if hasattr(db_manager, 'last_save_time') else None
     })
 
+# ==================== КОНТЕКСТНЫЕ ПРОЦЕССОРЫ ====================
+@app.context_processor
+def inject_now():
+    """Добавляет переменную now во все шаблоны"""
+    return {'now': datetime.now()}
+
 # ==================== ЗАПУСК СЕРВЕРА ====================
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
