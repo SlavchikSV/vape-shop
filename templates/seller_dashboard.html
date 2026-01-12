@@ -226,11 +226,24 @@ function createBackup() {
     
     showToast('🔄 Создаю бэкап...', 'info');
     
-    fetch('/admin/create_backup', {
+    fetch('/admin/manual_save', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+        },
     })
-    .then(response => response.json())
+    .then(response => {
+        // Проверяем, что ответ JSON
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.indexOf("application/json") !== -1) {
+            return response.json();
+        } else {
+            return response.text().then(text => {
+                throw new Error(`Expected JSON but got: ${text.substring(0, 100)}`);
+            });
+        }
+    })
     .then(data => {
         if (data.success) {
             showToast('✅ Бэкап создан и отправлен в GitHub!', 'success');
@@ -239,7 +252,8 @@ function createBackup() {
         }
     })
     .catch(error => {
-        showToast('❌ Ошибка сети: ' + error, 'danger');
+        console.error('Backup error:', error);
+        showToast('❌ Ошибка сети: ' + error.message, 'danger');
     });
 }
 
@@ -250,11 +264,23 @@ function restoreBackup() {
     
     showToast('🔄 Восстанавливаю из бэкапа...', 'info');
     
-    fetch('/admin/restore_backup', {
+    fetch('/admin/restore_db', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+        },
     })
-    .then(response => response.json())
+    .then(response => {
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.indexOf("application/json") !== -1) {
+            return response.json();
+        } else {
+            return response.text().then(text => {
+                throw new Error(`Expected JSON but got: ${text.substring(0, 100)}`);
+            });
+        }
+    })
     .then(data => {
         if (data.success) {
             showToast('✅ База восстановлена! Страница перезагрузится...', 'success');
@@ -264,7 +290,8 @@ function restoreBackup() {
         }
     })
     .catch(error => {
-        showToast('❌ Ошибка сети: ' + error, 'danger');
+        console.error('Restore error:', error);
+        showToast('❌ Ошибка сети: ' + error.message, 'danger');
     });
 }
 
@@ -602,5 +629,6 @@ document.addEventListener('DOMContentLoaded', function() {
 <!-- Включаем модальные окна -->
 {% include 'modals.html' %}
 {% endblock %}
+
 
 
