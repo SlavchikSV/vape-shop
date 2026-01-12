@@ -6,48 +6,16 @@
 <script>
 // Добавьте в блок <script> в seller_login.html
 // Обновление списка активных продавцов
-function updateActiveSellersList() {
-    fetch('/seller/active_sellers_list_public')
-        .then(response => response.json())
-        .then(data => {
-            const container = document.getElementById('active-sellers-list-login');
-            if (!container) return;
-            
-            if (!data.sellers || data.sellers.length === 0) {
-                container.innerHTML = `
-                <div class="text-center text-muted py-2">
-                    <i class="fas fa-user-slash"></i><br>
-                    Нет активных продавцов
-                </div>
-                `;
-                return;
-            }
-            
-            let html = '<div class="row">';
-            data.sellers.forEach(seller => {
-                html += `
-                <div class="col-12 mb-1">
-                    <div class="d-flex justify-content-between">
-                        <span>
-                            <i class="fas fa-user text-success"></i>
-                            ${seller.display_name || seller.username}
-                        </span>
-                        <small class="text-muted">с ${seller.login_time_short}</small>
-                    </div>
-                </div>
-                `;
-            });
-            html += '</div>';
-            
-            container.innerHTML = html;
-        })
-        .catch(error => {
-            console.error('Ошибка загрузки списка продавцов:', error);
-            const container = document.getElementById('active-sellers-list-login');
-            if (container) {
-                container.innerHTML = `<div class="text-danger small">Ошибка загрузки</div>`;
-            }
-        });
+function updateActiveSellers() {
+    const container = document.getElementById('active-sellers-list-login');
+    if (container) {
+        container.innerHTML = `
+        <div class="text-center text-muted py-2">
+            <i class="fas fa-user-slash"></i><br>
+            Система онлайн-статуса временно отключена
+        </div>
+        `;
+    }
 }
 
 // Обновление счетчика активных продавцов на странице входа
@@ -196,3 +164,4 @@ document.addEventListener('DOMContentLoaded', function() {
 </div>
 
 {% endblock %}
+
