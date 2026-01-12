@@ -6,6 +6,47 @@ import sqlite3
 from datetime import datetime, timedelta
 import secrets
 from datetime import datetime
+import atexit
+import signal
+import shutil
+
+def setup_persistent_storage():
+    """Настройка постоянного хранилища"""
+    # Создаем директорию для данных если ее нет
+    if not os.path.exists('/data'):
+        os.makedirs('/data', exist_ok=True)
+        print("📁 Создана директория /data")
+    
+    # Восстанавливаем базу из постоянного хранилища если есть
+    if os.path.exists('/data/shop.db') and not os.path.exists('shop.db'):
+        try:
+            shutil.copy2('/data/shop.db', 'shop.db')
+            print("✅ База восстановлена из постоянного хранилища")
+        except Exception as e:
+            print(f"⚠️ Ошибка восстановления базы: {e}")
+    
+    # Регистрируем функцию для сохранения базы при завершении
+    def save_database_on_exit():
+        if os.path.exists('shop.db'):
+            try:
+                shutil.copy2('shop.db', '/data/shop.db')
+                print("💾 База данных сохранена в постоянное хранилище")
+            except Exception as e:
+                print(f"⚠️ Ошибка сохранения базы: {e}")
+    
+    # Регистрируем обработчики
+    atexit.register(save_database_on_exit)
+    
+    # Обработчик сигналов
+    def signal_handler(signum, frame):
+        save_database_on_exit()
+        exit(0)
+    
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+
+# Вызываем настройку при импорте
+setup_persistent_storage()
 
 app = Flask(__name__)
 app.secret_key = 'ваш-секретный-ключ-измените-это'
@@ -13,9 +54,36 @@ bcrypt = Bcrypt(app)
 
 # ==================== БАЗА ДАННЫХ ====================
 def get_db():
-    """Подключение к базе данных"""
+    """Подключение к базе данных с автозакрытием"""
+    import sqlite3
     conn = sqlite3.connect('shop.db', check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    
+    # Автоматически сохраняем изменения
+    def close_and_save():
+        conn.commit()
+        conn.close()
+        
+        # Периодически сохраняем в постоянное хранилище
+        import time
+        import shutil
+        try:
+            # Сохраняем каждые 10 минут или при критических изменениях
+            current_time = time.time()
+            if not hasattr(get_db, 'last_save'):
+                get_db.last_save = 0
+            
+            if current_time - get_db.last_save > 600:  # 10 минут
+                if os.path.exists('shop.db'):
+                    shutil.copy2('shop.db', '/data/shop.db')
+                    get_db.last_save = current_time
+        except:
+            pass
+    
+    # Переопределяем close
+    original_close = conn.close
+    conn.close = close_and_save
+    
     return conn
 
 def init_db():
@@ -1674,3 +1742,4 @@ if __name__ == '__main__':
     # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
