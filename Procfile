@@ -1,5 +1,5 @@
 web: gunicorn app:app
-release: git pull && python -c 
+release: git pull && python -c "
 import subprocess
 import os
 
