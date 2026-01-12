@@ -224,7 +224,9 @@ function createBackup() {
         return;
     }
     
-    fetch('/admin/backup', {
+    showToast('🔄 Создаю бэкап...', 'info');
+    
+    fetch('/admin/create_backup', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
     })
@@ -239,34 +241,47 @@ function createBackup() {
     .catch(error => {
         showToast('❌ Ошибка сети: ' + error, 'danger');
     });
-}    
+}
 
-// Инициализация после загрузки страницы
-document.addEventListener('DOMContentLoaded', function() {
-    updateNotificationCount();
-    loadNotifications();
-    updateActiveSellersCount();
-    
-    setInterval(updateNotificationCount, 10000);
-    setInterval(loadNotifications, 10000);
-    setInterval(updateActiveSellersCount, 15000);
-    
-    const table = document.querySelector('.table');
-    if (table) {
-        const headers = table.querySelectorAll('th');
-        headers.forEach((header, index) => {
-            let sortType = 'string';
-            if (index === 0 || index === 3 || index === 4) sortType = 'number';
-            if (index === 6) sortType = 'date';
-            
-            header.style.cursor = 'pointer';
-            header.title = 'Нажмите для сортировки';
-            
-            header.addEventListener('click', () => {
-                sortTable(index, sortType);
-            });
-        });
+function restoreBackup() {
+    if (!confirm('Восстановить базу данных из последнего бэкапа в GitHub?\nВсе несохраненные изменения будут потеряны!')) {
+        return;
     }
+    
+    showToast('🔄 Восстанавливаю из бэкапа...', 'info');
+    
+    fetch('/admin/restore_backup', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showToast('✅ База восстановлена! Страница перезагрузится...', 'success');
+            setTimeout(() => location.reload(), 2000);
+        } else {
+            showToast('❌ Ошибка: ' + (data.error || 'неизвестная ошибка'), 'danger');
+        }
+    })
+    .catch(error => {
+        showToast('❌ Ошибка сети: ' + error, 'danger');
+    });
+}
+
+// Автоматический бэкап при важных действиях
+document.addEventListener('DOMContentLoaded', function() {
+    // Отслеживаем формы
+    const forms = document.querySelectorAll('form');
+    forms.forEach(form => {
+        form.addEventListener('submit', function() {
+            // Бэкап через 5 секунд после отправки формы
+            setTimeout(() => {
+                fetch('/admin/create_backup', {method: 'POST'})
+                    .then(() => console.log('Авто-бэкап после формы'))
+                    .catch(() => {});
+            }, 5000);
+        });
+    });
 });
 </script>
 {% endblock %}
@@ -430,8 +445,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     <i class="fas fa-sync"></i> Обновить страницу
                 </button>
 
-                <button class="btn btn-info" onclick="createBackup()">
+                 <button class="btn btn-info" onclick="createBackup()">
                     <i class="fas fa-cloud-upload-alt"></i> Создать бэкап
+                </button>
+                
+                <button class="btn btn-warning" onclick="restoreBackup()">
+                    <i class="fas fa-cloud-download-alt"></i> Восстановить
                 </button>
             </div>
             
@@ -583,4 +602,5 @@ document.addEventListener('DOMContentLoaded', function() {
 <!-- Включаем модальные окна -->
 {% include 'modals.html' %}
 {% endblock %}
+
 
