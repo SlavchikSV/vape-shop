@@ -183,141 +183,16 @@
     <!-- АГРЕССИВНАЯ ПРОВЕРКА СЕССИИ ДЛЯ ПРОДАВЦОВ -->
     {% if session.seller_logged_in %}
     <script>
-    // ==================== АГРЕССИВНАЯ ПРОВЕРКА СЕССИИ ====================
-    
-    let sessionCheckInterval;
-    let isChecking = false;
-    
-    // Основная функция проверки сессии
-    function checkSessionValidity() {
-        if (isChecking) return;
-        
-        isChecking = true;
-        
-        fetch('/seller/check_session', {
-            method: 'GET',
-            headers: {
-                'X-Requested-With': 'XMLHttpRequest',
-                'Cache-Control': 'no-cache'
-            },
-            credentials: 'same-origin'
-        })
-        .then(response => {
-            if (response.status === 401 || response.status === 403) {
-                // Сессия невалидна - нас вытеснили
-                if (sessionCheckInterval) {
-                    clearInterval(sessionCheckInterval);
-                }
-                showSessionExpiredWarning();
-                
-                setTimeout(() => {
-                    window.location.href = '/seller/session_expired';
-                }, 3000);
-                
-                return null;
-            }
-            
-            return response.json();
-        })
-        .then(data => {
-            if (!data) return;
-            
-            if (data && data.valid === false) {
-                if (sessionCheckInterval) {
-                    clearInterval(sessionCheckInterval);
-                }
-                showSessionExpiredWarning();
-                
-                setTimeout(() => {
-                    window.location.href = '/seller/session_expired';
-                }, 3000);
-            }
-        })
-        .catch(error => {
-            console.error('Ошибка проверки сессии:', error);
-        })
-        .finally(() => {
-            isChecking = false;
-        });
-    }
-    
-    // Функция для показа предупреждения об истечении сессии
-    function showSessionExpiredWarning() {
-        // Удаляем старое предупреждение если есть
-        const oldWarning = document.getElementById('session-expired-warning');
-        if (oldWarning) {
-            oldWarning.remove();
+    // Простой таймаут сессии - 60 минут
+    setTimeout(() => {
+        if (confirm('Ваша сессия истекет. Продолжить?')) {
+            location.reload();
+        } else {
+            window.location.href = '/seller/logout';
         }
-        
-        // Создаем новое предупреждение
-        const warningDiv = document.createElement('div');
-        warningDiv.id = 'session-expired-warning';
-        warningDiv.className = 'session-warning';
-        warningDiv.style.cssText = `
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            background-color: #dc3545;
-            color: white;
-            text-align: center;
-            padding: 15px;
-            z-index: 9999;
-            font-weight: bold;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
-        `;
-        
-        warningDiv.innerHTML = `
-            <i class="fas fa-exclamation-triangle"></i>
-            Вы были автоматически выведены из системы с другого устройства.
-            Перенаправляем на страницу входа через 3 секунды...
-            <i class="fas fa-exclamation-triangle"></i>
-        `;
-        
-        document.body.prepend(warningDiv);
-    }
-    
-    // Инициализация проверки сессии
-    function initSessionChecking() {
-        // Проверяем каждые 15 секунд
-        sessionCheckInterval = setInterval(checkSessionValidity, 15000);
-        
-        // Проверяем при фокусе окна
-        window.addEventListener('focus', function() {
-            setTimeout(checkSessionValidity, 1000);
-        });
-        
-        // Проверяем при видимости страницы
-        document.addEventListener('visibilitychange', function() {
-            if (!document.hidden) {
-                setTimeout(checkSessionValidity, 1000);
-            }
-        });
-        
-        // Проверяем при любом клике
-        document.addEventListener('click', function() {
-            setTimeout(checkSessionValidity, 2000);
-        });
-        
-        // Проверяем при нажатии клавиш
-        document.addEventListener('keydown', function() {
-            setTimeout(checkSessionValidity, 2000);
-        });
-        
-        // Первая проверка через 2 секунды после загрузки
-        setTimeout(checkSessionValidity, 2000);
-    }
-    
-    // Запускаем проверку при загрузке страницы
-    document.addEventListener('DOMContentLoaded', function() {
-        setTimeout(initSessionChecking, 1000);
-    });
-    
-    // Также запускаем если DOM уже загружен
-    if (document.readyState === 'interactive' || document.readyState === 'complete') {
-        setTimeout(initSessionChecking, 1000);
-    }
+    }, 1800000); // 30 минут
     </script>
     {% endif %}
 </body>
 </html>
+
