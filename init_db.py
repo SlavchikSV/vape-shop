@@ -1,55 +1,54 @@
 # init_db.py
+import os
 import sqlite3
 from flask_bcrypt import Bcrypt
-import os
+import subprocess
 
 bcrypt = Bcrypt()
 
-def init_database():
-    """Инициализация базы данных с проверкой"""
-    print("🔄 Инициализация базы данных...")
+def restore_from_github():
+    """Восстанавливает базу из последнего бэкапа в GitHub"""
+    print("🔄 Проверяю наличие бэкапов в GitHub...")
     
-    # Проверяем, есть ли уже база в постоянном хранилище
-    if os.path.exists('/data/shop.db'):
-        print("📁 Копирую базу из постоянного хранилища...")
-        # Копируем из постоянного хранилища в текущую директорию
-        import shutil
-        shutil.copy2('/data/shop.db', 'shop.db')
+    try:
+        # Пробуем получить последние изменения из GitHub
+        result = subprocess.run(['git', 'pull'], 
+                              capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            print(f"⚠️ Ошибка при загрузке из GitHub: {result.stderr}")
+            return False
+        
+        # Проверяем есть ли бэкапы
+        backup_dir = 'backups'
+        if os.path.exists(backup_dir):
+            backups = sorted([
+                f for f in os.listdir(backup_dir) 
+                if f.startswith('shop_backup_') and f.endswith('.db')
+            ])
+            
+            if backups:
+                latest_backup = os.path.join(backup_dir, backups[-1])
+                
+                # Восстанавливаем базу
+                import shutil
+                shutil.copy2(latest_backup, 'shop.db')
+                print(f"✅ База восстановлена из: {latest_backup}")
+                return True
+        
+        print("⚠️ Бэкапы не найдены, создаю новую базу")
+        return False
+        
+    except Exception as e:
+        print(f"❌ Ошибка восстановления: {e}")
+        return False
+
+def create_new_database():
+    """Создает новую базу данных с продавцами"""
+    print("🆕 Создаю новую базу данных...")
     
-    conn = sqlite3.connect('shop.db', check_same_thread=False)
-    conn.row_factory = sqlite3.Row
+    conn = sqlite3.connect('shop.db')
     cursor = conn.cursor()
-    
-    # Таблица товаров
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS items (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        cost_price REAL NOT NULL,
-        sell_price REAL NOT NULL,
-        status TEXT NOT NULL,
-        shipment_id INTEGER,
-        date_arrived TEXT,
-        date_sold TEXT,
-        date_taken TEXT,
-        date_reserved TEXT,
-        manual_price REAL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    ''')
-    
-    # Таблица транзакций
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS transactions (
-        tx_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        date TEXT NOT NULL,
-        type TEXT NOT NULL,
-        item_id INTEGER,
-        shipment_id INTEGER,
-        amount REAL,
-        note TEXT
-    )
-    ''')
     
     # Таблица продавцов
     cursor.execute('''
@@ -59,50 +58,22 @@ def init_database():
         password_hash TEXT NOT NULL,
         display_name TEXT,
         role TEXT DEFAULT 'seller',
-        is_active BOOLEAN DEFAULT 1,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        last_login TIMESTAMP
-    )
-    ''')
-    
-    # Таблица действий
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS action_log (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        seller_id INTEGER,
-        action_type TEXT NOT NULL,
-        item_id INTEGER,
-        details TEXT,
-        ip_address TEXT,
-        user_agent TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     ''')
     
-    # Таблица активных сессий
+    # Таблица товаров
     cursor.execute('''
-    CREATE TABLE IF NOT EXISTS active_sessions (
+    CREATE TABLE IF NOT EXISTS items (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        seller_id INTEGER NOT NULL,
-        session_token TEXT UNIQUE NOT NULL,
-        ip_address TEXT,
-        user_agent TEXT,
-        login_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        is_active BOOLEAN DEFAULT 1
-    )
-    ''')
-    
-    # Таблица уведомлений
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS notifications (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        seller_id INTEGER NOT NULL,
-        from_seller_id INTEGER,
-        message TEXT NOT NULL,
-        item_id INTEGER,
-        action_type TEXT,
-        is_read BOOLEAN DEFAULT 0,
+        name TEXT NOT NULL,
+        cost_price REAL NOT NULL,
+        sell_price REAL NOT NULL,
+        status TEXT NOT NULL DEFAULT 'в наличии',
+        shipment_id INTEGER,
+        date_arrived TEXT,
+        date_sold TEXT,
+        date_taken TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     ''')
@@ -113,16 +84,14 @@ def init_database():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         shipment_number TEXT UNIQUE NOT NULL,
         order_date TEXT NOT NULL,
-        received_date TEXT,
         delivery_cost REAL DEFAULT 0,
         status TEXT DEFAULT 'в пути',
         total_items INTEGER DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     ''')
     
-    # Добавляем продавцов если их нет
+    # Добавляем продавцов
     default_sellers = [
         ('SlavchikSV', 'sv280606', 'Администратор', 'admin'),
         ('mkozlov', '020988mama', 'Главный администратор', 'admin'),
@@ -142,18 +111,25 @@ def init_database():
     conn.commit()
     conn.close()
     
-    print("✅ База данных инициализирована!")
+    print("✅ Новая база данных создана")
+    return True
+
+def init_database():
+    """Основная функция инициализации"""
+    print("=" * 50)
+    print("🔄 ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ")
+    print("=" * 50)
     
-    # Сохраняем копию в постоянное хранилище
-    if os.path.exists('shop.db'):
-        try:
-            if not os.path.exists('/data'):
-                os.makedirs('/data', exist_ok=True)
-            import shutil
-            shutil.copy2('shop.db', '/data/shop.db')
-            print("💾 Копия базы сохранена в постоянное хранилище")
-        except Exception as e:
-            print(f"⚠️ Не удалось сохранить копию: {e}")
+    # Пробуем восстановить из GitHub
+    restored = restore_from_github()
+    
+    # Если не удалось восстановить, создаем новую
+    if not restored:
+        create_new_database()
+    
+    print("=" * 50)
+    print("✅ БАЗА ДАННЫХ ГОТОВА К РАБОТЕ")
+    print("=" * 50)
 
 if __name__ == '__main__':
     init_database()
