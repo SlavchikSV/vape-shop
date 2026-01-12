@@ -109,7 +109,7 @@ def buyer():
 
 @app.route('/seller/login', methods=['GET', 'POST'])
 def seller_login():
-    """Вход для продавца с проверкой активных сессий"""
+    """Вход для продавца"""
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
@@ -117,147 +117,21 @@ def seller_login():
         conn = get_db()
         seller = conn.execute('SELECT * FROM sellers WHERE username = ?', 
                              (username,)).fetchone()
+        conn.close()
         
         if seller and bcrypt.check_password_hash(seller['password_hash'], password):
-            # Проверяем, есть ли активные сессии
-            active_session = conn.execute('''
-                SELECT * FROM active_sessions 
-                WHERE seller_id = ? AND is_active = 1
-                ORDER BY last_activity DESC LIMIT 1
-            ''', (seller['id'],)).fetchone()
-            
-            if active_session:
-                # Есть активная сессия - показываем предупреждение
-                conn.close()
-                return render_template('login_warning.html', 
-                                     username=username,
-                                     active_session=dict(active_session) if active_session else None)
-            
-            # Создаем новую сессию
-            session_token = secrets.token_hex(32)
-            
-            conn.execute('''
-                INSERT INTO active_sessions 
-                (seller_id, session_token, ip_address, user_agent, login_time, last_activity)
-                VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
-            ''', (seller['id'], session_token, request.remote_addr, 
-                  request.user_agent.string[:200]))
-            
-            conn.commit()
-            conn.close()
-            
-            # Создаем сессию Flask
             session['seller_logged_in'] = True
             session['seller_id'] = seller['id']
             session['seller_username'] = seller['username']
             session['display_name'] = seller['display_name'] or seller['username']
-            session['session_token'] = session_token
             
             log_action(seller['id'], 'login')
             
             return redirect(url_for('seller_dashboard'))
         else:
-            conn.close()
             flash('Неверный логин или пароль', 'danger')
     
     return render_template('seller_login.html')
-
-@app.route('/seller/login_with_override', methods=['POST'])
-def login_with_override():
-    """Вход с завершением других сессий"""
-    username = request.form.get('username')
-    
-    conn = get_db()
-    seller = conn.execute('SELECT * FROM sellers WHERE username = ?', 
-                         (username,)).fetchone()
-    
-    if seller:
-        # Завершаем все активные сессии этого пользователя
-        conn.execute('''
-            UPDATE active_sessions 
-            SET is_active = 0 
-            WHERE seller_id = ? AND is_active = 1
-        ''', (seller['id'],))
-        
-        # Создаем новую сессию
-        session_token = secrets.token_hex(32)
-        
-        conn.execute('''
-            INSERT INTO active_sessions 
-            (seller_id, session_token, ip_address, user_agent, login_time, last_activity)
-            VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
-        ''', (seller['id'], session_token, request.remote_addr, 
-              request.user_agent.string[:200]))
-        
-        conn.commit()
-        conn.close()
-        
-        session['seller_logged_in'] = True
-        session['seller_id'] = seller['id']
-        session['seller_username'] = seller['username']
-        session['display_name'] = seller['display_name'] or seller['username']
-        session['session_token'] = session_token
-        
-        log_action(seller['id'], 'login_with_override')
-        
-        return redirect(url_for('seller_dashboard'))
-    
-    conn.close()
-    return redirect(url_for('seller_login'))
-
-@app.route('/seller/check_session')
-@seller_required
-def check_session():
-    """Проверка валидности сессии"""
-    if not session.get('seller_id') or not session.get('session_token'):
-        return jsonify({'valid': False}), 401
-    
-    conn = get_db()
-    active_session = conn.execute('''
-        SELECT * FROM active_sessions 
-        WHERE seller_id = ? AND session_token = ? AND is_active = 1
-    ''', (session['seller_id'], session['session_token'])).fetchone()
-    
-    conn.close()
-    
-    if active_session:
-        return jsonify({'valid': True})
-    else:
-        return jsonify({'valid': False}), 401
-
-@app.route('/seller/active_sellers')
-@seller_required
-def get_active_sellers():
-    """Получить список активных продавцов"""
-    conn = get_db()
-    
-    sellers = conn.execute('''
-        SELECT s.id, s.username, s.display_name,
-               a.login_time, a.last_activity,
-               CASE 
-                   WHEN datetime(a.last_activity) > datetime('now', '-5 minutes') THEN 'active'
-                   ELSE 'inactive'
-               END as status,
-               CASE 
-                   WHEN datetime(a.last_activity) > datetime('now', '-5 minutes') THEN 'Онлайн'
-                   ELSE 'Неактивен'
-               END as status_text,
-               CASE 
-                   WHEN datetime(a.last_activity) > datetime('now', '-5 minutes') THEN 'success'
-                   ELSE 'secondary'
-               END as status_class,
-               strftime('%H:%M', a.login_time, 'localtime') as login_time_local
-        FROM sellers s
-        JOIN active_sessions a ON s.id = a.seller_id
-        WHERE a.is_active = 1
-        ORDER BY a.last_activity DESC
-    ''').fetchall()
-    
-    conn.close()
-    
-    return jsonify({
-        'active_sellers': [dict(seller) for seller in sellers]
-    })
 
 @app.route('/seller/logout')
 def seller_logout():
@@ -312,55 +186,21 @@ def seller_dashboard():
 @app.route('/buyer/active_sellers')
 def buyer_active_sellers():
     """Список активных продавцов для покупателей"""
-    conn = get_db()
-    
-    # Получаем активных продавцов
-    sellers = conn.execute('''
-        SELECT s.username, s.display_name, 
-               strftime('%H:%M', a.login_time) as login_time_short
-        FROM sellers s
-        JOIN active_sessions a ON s.id = a.seller_id
-        WHERE a.is_active = 1
-        ORDER BY a.last_activity DESC
-    ''').fetchall()
-    
-    conn.close()
-    
+    # Просто возвращаем пустой список
     return jsonify({
-        'active_sellers': [dict(seller) for seller in sellers]
+        'active_sellers': []
     })
 
 @app.route('/seller/active_sellers_count_public')
 def active_sellers_count_public():
     """Количество активных продавцов для страницы входа"""
-    conn = get_db()
-    count = conn.execute('''
-        SELECT COUNT(*) as count 
-        FROM active_sessions 
-        WHERE is_active = 1
-    ''').fetchone()[0]
-    conn.close()
-    
-    return jsonify({'count': count})
+    return jsonify({'count': 0})
 
 @app.route('/seller/active_sellers_list_public')
 def active_sellers_list_public():
     """Список активных продавцов для страницы входа"""
-    conn = get_db()
-    
-    sellers = conn.execute('''
-        SELECT s.username, s.display_name, 
-               strftime('%H:%M', a.login_time) as login_time_short
-        FROM sellers s
-        JOIN active_sessions a ON s.id = a.seller_id
-        WHERE a.is_active = 1
-        ORDER BY a.last_activity DESC
-    ''').fetchall()
-    
-    conn.close()
-    
     return jsonify({
-        'sellers': [dict(seller) for seller in sellers]
+        'sellers': []
     })
 
 # ==================== API ДЛЯ AJAX ====================
@@ -645,5 +485,6 @@ def inject_now():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
 
 
