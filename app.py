@@ -1668,9 +1668,9 @@ def truncate_filter(s, length=30):
 # ==================== ЗАПУСК ====================
 
 if __name__ == '__main__':
-    ensure_database_exists()
+    # Очищаем старые сессии при запуске
     clear_old_sessions()
     
+    # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
-
