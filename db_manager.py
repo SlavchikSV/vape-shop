@@ -278,18 +278,6 @@ class GitHubDBManager:
     ''')
     
     # ТАБЛИЦА АКТИВНЫХ СЕССИЙ - ДОБАВЬТЕ ЭТУ ЧАСТЬ
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS active_sessions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        seller_id INTEGER NOT NULL,
-        session_token TEXT UNIQUE NOT NULL,
-        ip_address TEXT,
-        user_agent TEXT,
-        login_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        is_active BOOLEAN DEFAULT 1
-    )
-    ''')
     
     # Таблица товаров
     cursor.execute('''
