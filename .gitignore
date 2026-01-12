@@ -1,0 +1,38 @@
+# База данных (не коммитим основную базу)
+shop.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Временные файлы
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.env
+.venv
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Системные файлы
+.DS_Store
+Thumbs.db
+
+# Логи
+*.log
+
+# Бэкапы (кроме тех что в папке backups/)
+backup_*.db
+temp_*.db
+
+# Исключения (коммитим только backups/ директорию)
+!backups/*.db
