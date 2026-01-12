@@ -219,6 +219,28 @@ function sortTable(columnIndex, sortType = 'string') {
     rows.forEach(row => tbody.appendChild(row));
 }
 
+function createBackup() {
+    if (!confirm('Создать резервную копию базы данных и отправить в GitHub?')) {
+        return;
+    }
+    
+    fetch('/admin/backup', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showToast('✅ Бэкап создан и отправлен в GitHub!', 'success');
+        } else {
+            showToast('❌ Ошибка: ' + (data.error || 'неизвестная ошибка'), 'danger');
+        }
+    })
+    .catch(error => {
+        showToast('❌ Ошибка сети: ' + error, 'danger');
+    });
+}    
+
 // Инициализация после загрузки страницы
 document.addEventListener('DOMContentLoaded', function() {
     updateNotificationCount();
@@ -407,6 +429,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 <button class="btn btn-secondary" onclick="location.reload()">
                     <i class="fas fa-sync"></i> Обновить страницу
                 </button>
+
+                <button class="btn btn-info" onclick="createBackup()">
+                    <i class="fas fa-cloud-upload-alt"></i> Создать бэкап
+                </button>
             </div>
             
             <div class="alert alert-warning">
@@ -557,3 +583,4 @@ document.addEventListener('DOMContentLoaded', function() {
 <!-- Включаем модальные окна -->
 {% include 'modals.html' %}
 {% endblock %}
+
