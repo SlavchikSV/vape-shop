@@ -12,22 +12,11 @@ setInterval(() => {
 
 // Загрузка счетчика уведомлений
 function updateNotificationCount() {
-    fetch('/seller/notification_count')
-        .then(response => response.json())
-        .then(data => {
-            const badge = document.getElementById('notification-badge');
-            if (badge) {
-                badge.textContent = data.count;
-                if (data.count > 0) {
-                    badge.style.display = 'inline';
-                    badge.classList.add('notification-badge');
-                } else {
-                    badge.style.display = 'none';
-                    badge.classList.remove('notification-badge');
-                }
-            }
-        })
-        .catch(error => console.error('Ошибка загрузки счетчика:', error));
+    // Простая заглушка
+    const badge = document.getElementById('notification-badge');
+    if (badge) {
+        badge.style.display = 'none';
+    }
 }
 
 // Загрузка уведомлений
@@ -132,53 +121,6 @@ function markAllAsRead() {
             }
         }
     });
-}
-
-// Обновление счетчика активных продавцов
-function updateActiveSellersCount() {
-    fetch('/seller/active_sellers')
-        .then(response => response.json())
-        .then(data => {
-            if (data.active_sellers) {
-                const activeCount = data.active_sellers.filter(s => s.status === 'active').length;
-                const countElement = document.getElementById('active-sellers-count');
-                if (countElement) {
-                    countElement.textContent = activeCount;
-                }
-                
-                updateActiveSellersList(data.active_sellers);
-            }
-        })
-        .catch(error => console.error('Ошибка загрузки активных продавцов:', error));
-}
-
-// Обновление списка активных продавцов
-function updateActiveSellersList(sellers) {
-    const container = document.getElementById('active-sellers-list');
-    if (!container) return;
-    
-    if (!sellers || sellers.length === 0) {
-        container.innerHTML = '<div class="list-group-item text-center text-muted py-3">' +
-                              '<i class="fas fa-user-slash"></i><br>Нет активных продавцов</div>';
-        return;
-    }
-    
-    let html = '';
-    sellers.forEach(seller => {
-        html += `
-        <div class="list-group-item">
-            <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <strong>${seller.display_name || seller.username}</strong><br>
-                    <small class="text-muted">Вошел: ${seller.login_time_local}</small>
-                </div>
-                <span class="badge bg-${seller.status_class}">${seller.status_text}</span>
-            </div>
-        </div>
-        `;
-    });
-    
-    container.innerHTML = html;
 }
 
 // Сортировка таблицы
@@ -629,6 +571,7 @@ document.addEventListener('DOMContentLoaded', function() {
 <!-- Включаем модальные окна -->
 {% include 'modals.html' %}
 {% endblock %}
+
 
 
 
