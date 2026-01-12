@@ -375,14 +375,14 @@ def get_db_connection(self):
     conn = sqlite3.connect(self.db_name)
     conn.row_factory = sqlite3.Row
     
-    # Создаем кастомный курсор с патченным commit
+    # Создаем кастомный класс для соединения
     class CustomConnection:
         def __init__(self, conn, db_manager):
             self._conn = conn
             self.db_manager = db_manager
         
         def __getattr__(self, name):
-            # Делегируем все остальные атрибуты оригинальному соединению
+            # Делегируем все остальные методы оригинальному соединению
             return getattr(self._conn, name)
         
         def commit(self):
@@ -392,11 +392,25 @@ def get_db_connection(self):
             self.db_manager.save_db_to_github("after_commit")
         
         def cursor(self):
-            # Возвращаем оригинальный курсор
             return self._conn.cursor()
         
         def close(self):
             return self._conn.close()
+        
+        def execute(self, *args, **kwargs):
+            return self._conn.execute(*args, **kwargs)
+        
+        def executemany(self, *args, **kwargs):
+            return self._conn.executemany(*args, **kwargs)
+        
+        def executescript(self, *args, **kwargs):
+            return self._conn.executescript(*args, **kwargs)
+        
+        def fetchone(self, *args, **kwargs):
+            return self._conn.fetchone(*args, **kwargs) if hasattr(self._conn, 'fetchone') else None
+        
+        def fetchall(self, *args, **kwargs):
+            return self._conn.fetchall(*args, **kwargs) if hasattr(self._conn, 'fetchall') else None
     
     return CustomConnection(conn, self)
 
