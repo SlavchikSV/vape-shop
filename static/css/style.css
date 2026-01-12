@@ -1,0 +1,273 @@
+/* style.css - Дополнительные стили */
+
+/* Анимации */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+}
+
+@keyframes slideInRight {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
+/* Общие стили */
+body {
+    background-color: #f8f9fa;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.container {
+    animation: fadeIn 0.5s ease-out;
+}
+
+/* Карточки */
+.card {
+    border: none;
+    border-radius: 10px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    margin-bottom: 20px;
+}
+
+.card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 20px rgba(0,0,0,0.12);
+}
+
+.card-header {
+    border-radius: 10px 10px 0 0 !important;
+    padding: 15px 20px;
+}
+
+/* Кнопки */
+.btn {
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-weight: 500;
+    transition: all 0.3s ease;
+}
+
+.btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #0d6efd, #0b5ed7);
+    border: none;
+}
+
+.btn-success {
+    background: linear-gradient(135deg, #198754, #157347);
+    border: none;
+}
+
+.btn-danger {
+    background: linear-gradient(135deg, #dc3545, #bb2d3b);
+    border: none;
+}
+
+.btn-warning {
+    background: linear-gradient(135deg, #ffc107, #ffca2c);
+    border: none;
+    color: #000;
+}
+
+/* Навбар */
+.navbar {
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    background: white !important;
+    padding: 10px 0;
+}
+
+.navbar-brand {
+    font-weight: 700;
+    font-size: 1.5rem;
+    color: #0d6efd !important;
+}
+
+/* Таблицы */
+.table {
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.table thead th {
+    background-color: #f8f9fa;
+    border-bottom: 2px solid #dee2e6;
+    font-weight: 600;
+    padding: 12px;
+}
+
+.table tbody tr:hover {
+    background-color: rgba(13, 110, 253, 0.05);
+}
+
+/* Бейджи */
+.badge {
+    padding: 6px 10px;
+    border-radius: 20px;
+    font-weight: 500;
+}
+
+/* Алерты */
+.alert {
+    border: none;
+    border-radius: 10px;
+    padding: 15px;
+}
+
+/* Модальные окна */
+.modal-content {
+    border-radius: 12px;
+    border: none;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+}
+
+.modal-header {
+    border-radius: 12px 12px 0 0;
+    padding: 20px;
+}
+
+/* Формы */
+.form-control, .form-select {
+    border-radius: 8px;
+    padding: 10px 15px;
+    border: 1px solid #dee2e6;
+    transition: all 0.3s ease;
+}
+
+.form-control:focus, .form-select:focus {
+    border-color: #0d6efd;
+    box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+    transform: translateY(-1px);
+}
+
+/* Toast уведомления */
+.toast {
+    border-radius: 10px;
+    border: none;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.15);
+    animation: slideInRight 0.3s ease-out;
+}
+
+/* Анимация загрузки */
+.spinner-border {
+    width: 1.5rem;
+    height: 1.5rem;
+}
+
+/* Пульсация для live статуса */
+@keyframes livePulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.7; }
+    100% { opacity: 1; }
+}
+
+.live-pulse {
+    animation: livePulse 2s infinite;
+}
+
+/* Кастомные стили для статусов */
+.status-in-stock { background-color: #d1e7dd; color: #0f5132; }
+.status-in-transit { background-color: #fff3cd; color: #664d03; }
+.status-sold { background-color: #f8d7da; color: #842029; }
+.status-reserved { background-color: #cff4fc; color: #055160; }
+.status-personal { background-color: #e7f1ff; color: #084298; }
+
+/* Адаптивность */
+@media (max-width: 768px) {
+    .container {
+        padding-left: 15px;
+        padding-right: 15px;
+    }
+    
+    .card {
+        margin-bottom: 15px;
+    }
+    
+    .btn {
+        padding: 6px 12px;
+        font-size: 0.9rem;
+    }
+    
+    h1 { font-size: 1.8rem; }
+    h2 { font-size: 1.5rem; }
+    h3 { font-size: 1.3rem; }
+}
+
+/* Стили для инпутов цен */
+.price-input-group {
+    max-width: 200px;
+}
+
+/* Стили для текстовых областей массового ввода */
+.bulk-textarea {
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+/* Стили для карточек поставок */
+.shipment-card {
+    border-left: 4px solid #0d6efd;
+}
+
+/* Анимация для новых элементов */
+.new-item {
+    animation: pulse 0.5s ease;
+}
+
+/* Стили для футера */
+footer {
+    margin-top: 40px;
+    padding: 20px 0;
+    background-color: #f8f9fa;
+    border-top: 1px solid #dee2e6;
+}
+
+/* Стили для навигационных табов */
+.nav-tabs .nav-link {
+    border-radius: 8px 8px 0 0;
+    font-weight: 500;
+}
+
+/* Стили для статистических карточек */
+.stat-card {
+    text-align: center;
+    padding: 20px;
+}
+
+.stat-card h2 {
+    font-size: 2.5rem;
+    font-weight: 700;
+    margin: 10px 0;
+}
+
+/* Стили для иконок */
+.icon-large {
+    font-size: 1.5rem;
+    margin-right: 8px;
+}
+
+/* Стили для разделителей */
+.section-divider {
+    border-top: 2px solid #dee2e6;
+    margin: 30px 0;
+}
+
+/* Стили для заголовков секций */
+.section-title {
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #0d6efd;
+    display: inline-block;
+}
