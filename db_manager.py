@@ -370,49 +370,49 @@ class GitHubDBManager:
         thread = threading.Thread(target=auto_save_worker, daemon=True)
         thread.start()
     
-def get_db_connection(self):
-    """Возвращает соединение с базой данных"""
-    conn = sqlite3.connect(self.db_name)
-    conn.row_factory = sqlite3.Row
-    
-    # Создаем кастомный класс для соединения
-    class CustomConnection:
-        def __init__(self, conn, db_manager):
-            self._conn = conn
-            self.db_manager = db_manager
+    def get_db_connection(self):
+        """Возвращает соединение с базой данных"""
+        conn = sqlite3.connect(self.db_name)
+        conn.row_factory = sqlite3.Row
         
-        def __getattr__(self, name):
-            # Делегируем все остальные методы оригинальному соединению
-            return getattr(self._conn, name)
+        # Создаем кастомный класс для соединения
+        class CustomConnection:
+            def __init__(self, conn, db_manager):
+                self._conn = conn
+                self.db_manager = db_manager
+            
+            def __getattr__(self, name):
+                # Делегируем все остальные методы оригинальному соединению
+                return getattr(self._conn, name)
+            
+            def commit(self):
+                # Вызываем оригинальный commit
+                self._conn.commit()
+                # Ставим в очередь сохранение после коммита
+                self.db_manager.save_db_to_github("after_commit")
+            
+            def cursor(self):
+                return self._conn.cursor()
+            
+            def close(self):
+                return self._conn.close()
+            
+            def execute(self, *args, **kwargs):
+                return self._conn.execute(*args, **kwargs)
+            
+            def executemany(self, *args, **kwargs):
+                return self._conn.executemany(*args, **kwargs)
+            
+            def executescript(self, *args, **kwargs):
+                return self._conn.executescript(*args, **kwargs)
+            
+            def fetchone(self, *args, **kwargs):
+                return self._conn.fetchone(*args, **kwargs) if hasattr(self._conn, 'fetchone') else None
+            
+            def fetchall(self, *args, **kwargs):
+                return self._conn.fetchall(*args, **kwargs) if hasattr(self._conn, 'fetchall') else None
         
-        def commit(self):
-            # Вызываем оригинальный commit
-            self._conn.commit()
-            # Ставим в очередь сохранение после коммита
-            self.db_manager.save_db_to_github("after_commit")
-        
-        def cursor(self):
-            return self._conn.cursor()
-        
-        def close(self):
-            return self._conn.close()
-        
-        def execute(self, *args, **kwargs):
-            return self._conn.execute(*args, **kwargs)
-        
-        def executemany(self, *args, **kwargs):
-            return self._conn.executemany(*args, **kwargs)
-        
-        def executescript(self, *args, **kwargs):
-            return self._conn.executescript(*args, **kwargs)
-        
-        def fetchone(self, *args, **kwargs):
-            return self._conn.fetchone(*args, **kwargs) if hasattr(self._conn, 'fetchone') else None
-        
-        def fetchall(self, *args, **kwargs):
-            return self._conn.fetchall(*args, **kwargs) if hasattr(self._conn, 'fetchall') else None
-    
-    return CustomConnection(conn, self)
+        return CustomConnection(conn, self)
 
 # Глобальный экземпляр менеджера БД
 db_manager = GitHubDBManager()
