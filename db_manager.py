@@ -370,21 +370,35 @@ class GitHubDBManager:
         thread = threading.Thread(target=auto_save_worker, daemon=True)
         thread.start()
     
-    def get_db_connection(self):
-        """Возвращает соединение с базой данных"""
-        conn = sqlite3.connect(self.db_name)
-        conn.row_factory = sqlite3.Row
+def get_db_connection(self):
+    """Возвращает соединение с базой данных"""
+    conn = sqlite3.connect(self.db_name)
+    conn.row_factory = sqlite3.Row
+    
+    # Создаем кастомный курсор с патченным commit
+    class CustomConnection:
+        def __init__(self, conn, db_manager):
+            self._conn = conn
+            self.db_manager = db_manager
         
-        # Патчим commit для автоматического сохранения
-        original_commit = conn.commit
+        def __getattr__(self, name):
+            # Делегируем все остальные атрибуты оригинальному соединению
+            return getattr(self._conn, name)
         
-        def patched_commit():
-            original_commit()
+        def commit(self):
+            # Вызываем оригинальный commit
+            self._conn.commit()
             # Ставим в очередь сохранение после коммита
-            self.save_db_to_github("after_commit")
+            self.db_manager.save_db_to_github("after_commit")
         
-        conn.commit = patched_commit
-        return conn
+        def cursor(self):
+            # Возвращаем оригинальный курсор
+            return self._conn.cursor()
+        
+        def close(self):
+            return self._conn.close()
+    
+    return CustomConnection(conn, self)
 
 # Глобальный экземпляр менеджера БД
 db_manager = GitHubDBManager()
