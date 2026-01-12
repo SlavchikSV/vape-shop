@@ -8,316 +8,48 @@ import atexit
 import signal
 import threading
 import time
-import subprocess
-import shutil
 from functools import wraps
+
+# Импортируем наш менеджер БД
+from db_manager import db_manager
 
 # ==================== НАСТРОЙКА ПРИЛОЖЕНИЯ ====================
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-change-this-in-production')
 bcrypt = Bcrypt(app)
 
-# ==================== GITHUB BACKUP СИСТЕМА ====================
-class GitHubBackup:
-    def __init__(self, db_path='shop.db'):
-        self.db_path = db_path
-        self.is_backing_up = False
-        self.backup_queue = []
-        self.backup_thread = None
-        
-        print("🔧 Инициализация GitHub Backup системы...")
-        
-        # Запускаем обработчик очереди бэкапов
-        self.start_backup_processor()
-        
-        # Сохраняем при выходе
-        atexit.register(self.final_backup)
-        signal.signal(signal.SIGTERM, lambda s, f: self.final_backup())
-        signal.signal(signal.SIGINT, lambda s, f: self.final_backup())
+# ==================== ИНИЦИАЛИЗАЦИЯ БАЗЫ ====================
+def init_app():
+    """Инициализация приложения"""
+    print("=" * 50)
+    print("🚀 ЗАПУСК ПРИЛОЖЕНИЯ НА RENDER")
+    print("=" * 50)
     
-    def start_backup_processor(self):
-        """Запускает обработчик очереди бэкапов в отдельном потоке"""
-        def backup_worker():
-            while True:
-                if self.backup_queue:
-                    self._process_backup()
-                time.sleep(1)  # Проверяем каждую секунду
-        
-        self.backup_thread = threading.Thread(target=backup_worker, daemon=True)
-        self.backup_thread.start()
-        print("✅ Обработчик бэкапов запущен")
+    # Инициализируем или восстанавливаем базу из GitHub
+    if db_manager.init_or_restore_db():
+        print("✅ База данных готова")
+    else:
+        print("❌ Не удалось инициализировать базу данных")
+        # Создаем новую базу в любом случае
+        db_manager.create_new_database()
     
-    def _process_backup(self):
-        """Обрабатывает один бэкап из очереди"""
-        if self.is_backing_up or not self.backup_queue:
-            return
-        
-        self.is_backing_up = True
-        try:
-            # Берем первый бэкап из очереди
-            backup_type = self.backup_queue.pop(0)
-            self._create_backup(backup_type)
-        except Exception as e:
-            print(f"❌ Ошибка при создании бэкапа: {e}")
-        finally:
-            self.is_backing_up = False
+    # Запускаем авто-сохранение каждые 3 минуты
+    db_manager.start_auto_save(interval_minutes=3)
     
-    def _create_backup(self, backup_type):
-        """Создает бэкап и отправляет в GitHub"""
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        backup_file = f"shop_backup_{timestamp}.db"
-        
-        try:
-            # 1. Создаем копию базы
-            if os.path.exists(self.db_path):
-                shutil.copy2(self.db_path, backup_file)
-                print(f"📁 Создана локальная копия: {backup_file}")
-            else:
-                print("⚠️ База данных не найдена, пропускаю бэкап")
-                return
-            
-            # 2. Добавляем в Git
-            subprocess.run(['git', 'add', backup_file], 
-                         check=True, capture_output=True)
-            
-            # 3. Коммитим
-            commit_msg = f"Бэкап [{backup_type}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-            subprocess.run(['git', 'commit', '-m', commit_msg], 
-                         check=True, capture_output=True)
-            
-            # 4. Пушим в GitHub
-            result = subprocess.run(['git', 'push'], 
-                                  capture_output=True, text=True)
-            
-            if result.returncode == 0:
-                print(f"✅ Бэкап отправлен в GitHub: {commit_msg}")
-                
-                # 5. Удаляем локальный файл бэкапа
-                os.remove(backup_file)
-                
-                # 6. Очищаем старые коммиты (оставляем последние 50)
-                self._cleanup_old_commits()
-            else:
-                print(f"⚠️ Ошибка Git push: {result.stderr}")
-                
-        except subprocess.CalledProcessError as e:
-            print(f"❌ Ошибка Git команды: {e}")
-        except Exception as e:
-            print(f"❌ Неожиданная ошибка: {e}")
-    
-    def _cleanup_old_commits(self):
-        """Очищает историю Git, оставляя только последние 50 коммитов"""
-        try:
-            # Создаем новый коммит с squash старых
-            result = subprocess.run(
-                ['git', 'checkout', '--orphan', 'temp'],
-                capture_output=True, text=True
-            )
-            
-            if result.returncode == 0:
-                subprocess.run(['git', 'add', '-A'], check=True)
-                subprocess.run(['git', 'commit', '-m', 'Объединение истории'], check=True)
-                subprocess.run(['git', 'branch', '-D', 'main'], check=True)
-                subprocess.run(['git', 'branch', '-m', 'main'], check=True)
-                subprocess.run(['git', 'push', '-f', 'origin', 'main'], check=True)
-                print("🧹 История Git очищена")
-        except:
-            pass  # Игнорируем ошибки очистки
-    
-    def queue_backup(self, action_type="auto"):
-        """Добавляет бэкап в очередь"""
-        if action_type not in self.backup_queue:
-            self.backup_queue.append(action_type)
-            print(f"📋 Бэкап [{action_type}] добавлен в очередь. В очереди: {len(self.backup_queue)}")
-    
-    def final_backup(self):
-        """Финальный бэкап при завершении"""
-        print("💾 Создаю финальный бэкап перед выходом...")
-        self._create_backup("final")
-    
-    def immediate_backup(self):
-        """Немедленный бэкап (блокирующий)"""
-        print("⚡ Немедленный бэкап...")
-        self._create_backup("immediate")
+    print("✅ Приложение инициализировано")
+    print(f"📊 База данных: {os.path.abspath('shop.db')}")
+    print("=" * 50)
 
-# Создаем глобальный экземпляр бэкап системы
-backup_system = GitHubBackup()
-
-# ==================== БАЗА ДАННЫХ ====================
-def get_db():
-    """Подключение к базе данных с автоматическим бэкапом"""
-    conn = sqlite3.connect('shop.db', check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    
-    # Патчим commit для автоматического бэкапа
-    original_commit = conn.commit
-    def commit_with_backup():
-        original_commit()
-        # Ставим бэкап в очередь после коммита
-        backup_system.queue_backup("db_commit")
-    
-    conn.commit = commit_with_backup
-    return conn
-
-def init_database():
-    """Инициализация базы данных"""
-    print("🔄 Инициализация базы данных...")
-    
-    # Пробуем восстановить из GitHub
-    try:
-        print("📥 Пробую получить последнюю версию базы из GitHub...")
-        subprocess.run(['git', 'pull'], capture_output=True, text=True)
-        
-        # Ищем последний бэкап файл
-        backup_files = [f for f in os.listdir('.') if f.startswith('shop_backup_') and f.endswith('.db')]
-        if backup_files:
-            latest_backup = sorted(backup_files)[-1]
-            if os.path.exists(latest_backup):
-                shutil.copy2(latest_backup, 'shop.db')
-                print(f"✅ База восстановлена из: {latest_backup}")
-                # Удаляем временный файл
-                os.remove(latest_backup)
-                return
-    except:
-        pass
-    
-    # Если не удалось восстановить, создаем новую
-    print("🆕 Создаю новую базу данных...")
-    conn = get_db()
-    cursor = conn.cursor()
-    
-    # Таблица продавцов
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS sellers (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE NOT NULL,
-        password_hash TEXT NOT NULL,
-        display_name TEXT,
-        role TEXT DEFAULT 'seller',
-        is_active BOOLEAN DEFAULT 1,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        last_login TIMESTAMP
-    )
-    ''')
-    
-    # Таблица товаров
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS items (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        cost_price REAL NOT NULL,
-        sell_price REAL NOT NULL,
-        status TEXT NOT NULL,
-        shipment_id INTEGER,
-        date_arrived TEXT,
-        date_sold TEXT,
-        date_taken TEXT,
-        date_reserved TEXT,
-        manual_price REAL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    ''')
-    
-    # Таблица транзакций
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS transactions (
-        tx_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        date TEXT NOT NULL,
-        type TEXT NOT NULL,
-        item_id INTEGER,
-        shipment_id INTEGER,
-        amount REAL,
-        note TEXT
-    )
-    ''')
-    
-    # Таблица действий
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS action_log (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        seller_id INTEGER,
-        action_type TEXT NOT NULL,
-        item_id INTEGER,
-        details TEXT,
-        ip_address TEXT,
-        user_agent TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    ''')
-    
-    # Таблица активных сессий
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS active_sessions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        seller_id INTEGER NOT NULL,
-        session_token TEXT UNIQUE NOT NULL,
-        ip_address TEXT,
-        user_agent TEXT,
-        login_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        is_active BOOLEAN DEFAULT 1
-    )
-    ''')
-    
-    # Таблица уведомлений
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS notifications (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        seller_id INTEGER NOT NULL,
-        from_seller_id INTEGER,
-        message TEXT NOT NULL,
-        item_id INTEGER,
-        action_type TEXT,
-        is_read BOOLEAN DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    ''')
-    
-    # Таблица поставок
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS shipments (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        shipment_number TEXT UNIQUE NOT NULL,
-        order_date TEXT NOT NULL,
-        received_date TEXT,
-        delivery_cost REAL DEFAULT 0,
-        status TEXT DEFAULT 'в пути',
-        total_items INTEGER DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    ''')
-    
-    # Добавляем продавцов
-    default_sellers = [
-        ('SlavchikSV', 'sv280606', 'Администратор', 'admin'),
-        ('mkozlov', '020988mama', 'Главный администратор', 'admin'),
-        ('g_nix', 'IHHujhg655G', 'Продавец G_Nix', 'seller'),
-    ]
-    
-    for username, password, display, role in default_sellers:
-        cursor.execute('SELECT id FROM sellers WHERE username = ?', (username,))
-        if not cursor.fetchone():
-            password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
-            cursor.execute('''
-            INSERT INTO sellers (username, password_hash, display_name, role)
-            VALUES (?, ?, ?, ?)
-            ''', (username, password_hash, display, role))
-            print(f"✅ Добавлен продавец: {username}")
-    
-    conn.commit()
-    conn.close()
-    
-    # Создаем начальный бэкап
-    backup_system.queue_backup("initial")
-    print("✅ База данных инициализирована")
-
-# Инициализируем базу при старте
-init_database()
+# Запускаем инициализацию при импорте
+init_app()
 
 # ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
+def get_db():
+    """Получаем соединение с базой через менеджер"""
+    return db_manager.get_db_connection()
+
 def log_action(seller_id, action_type, item_id=None, details=""):
-    """Логирование действия с автоматическим бэкапом"""
+    """Логирование действия"""
     conn = get_db()
     cursor = conn.cursor()
     
@@ -330,9 +62,13 @@ def log_action(seller_id, action_type, item_id=None, details=""):
     conn.commit()
     conn.close()
     
-    # Ставим бэкап в очередь после важного действия
+    # Ставим авто-сохранение в очередь после важного действия
     if action_type in ['add_item', 'update_item', 'sale', 'add_shipment', 'update_shipment']:
-        backup_system.queue_backup(action_type)
+        threading.Thread(
+            target=db_manager.save_db_to_github,
+            args=(f"action_{action_type}",),
+            daemon=True
+        ).start()
     
     print(f"📝 Действие: {seller_id} - {action_type}")
 
@@ -395,8 +131,12 @@ def seller_login():
             # Логируем вход
             log_action(seller['id'], 'login')
             
-            # Бэкап после входа
-            backup_system.queue_backup("login")
+            # Сохраняем в GitHub после входа
+            threading.Thread(
+                target=db_manager.save_db_to_github,
+                args=("after_login",),
+                daemon=True
+            ).start()
             
             return redirect(url_for('seller_dashboard'))
         else:
@@ -409,6 +149,8 @@ def seller_logout():
     """Выход продавца"""
     if session.get('seller_id'):
         log_action(session['seller_id'], 'logout')
+        # Сохраняем перед выходом
+        db_manager.save_db_to_github("before_logout")
     
     session.clear()
     return redirect(url_for('index'))
@@ -493,7 +235,7 @@ def add_item():
         conn.commit()
         conn.close()
         
-        # Логируем и делаем бэкап
+        # Логируем и сохраняем в GitHub
         log_action(session['seller_id'], 'add_item', item_id, 
                   f'Добавлен товар: {data["name"]}')
         
@@ -558,7 +300,7 @@ def update_item(item_id):
         conn.commit()
         conn.close()
         
-        # Логируем и делаем бэкап
+        # Логируем и сохраняем в GitHub
         log_action(session['seller_id'], 'update_item', item_id, 
                   f'Статус изменен: {old_status} -> {new_status}')
         
@@ -622,14 +364,14 @@ def create_shipment_with_items():
         # Обновляем счетчик
         cursor.execute('''
         UPDATE shipments 
-        SET total_items = ?, updated_at = ?
+        SET total_items = ?
         WHERE id = ?
-        ''', (len(items), datetime.now().strftime('%Y-%m-%d %H:%M:%S'), shipment_id))
+        ''', (len(items), shipment_id))
         
         conn.commit()
         conn.close()
         
-        # Логируем и делаем бэкап
+        # Логируем и сохраняем в GitHub
         log_action(session['seller_id'], 'add_shipment', 
                   details=f'Создана поставка {shipment_number} с {len(items)} товарами')
         
@@ -643,36 +385,53 @@ def create_shipment_with_items():
     except Exception as e:
         return jsonify({'error': str(e)}), 400
 
-@app.route('/admin/create_backup', methods=['POST'])
+@app.route('/seller/keepalive')
 @seller_required
-def create_backup():
-    """Ручное создание бэкапа"""
-    try:
-        backup_system.immediate_backup()
-        return jsonify({'success': True, 'message': 'Бэкап создан и отправлен в GitHub'})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+def keepalive():
+    """Поддержание активности сессии"""
+    return jsonify({'success': True})
 
-@app.route('/admin/restore_backup', methods=['POST'])
+# ==================== API ДЛЯ УПРАВЛЕНИЯ БАЗОЙ ====================
+@app.route('/admin/manual_save', methods=['POST'])
 @seller_required
-def restore_backup():
-    """Восстановление из последнего бэкапа"""
+def manual_save():
+    """Ручное сохранение базы в GitHub"""
     try:
-        init_database()
-        return jsonify({'success': True, 'message': 'База восстановлена из последнего бэкапа'})
+        success = db_manager.save_db_to_github("manual_save")
+        if success:
+            return jsonify({'success': True, 'message': 'База сохранена в GitHub'})
+        else:
+            return jsonify({'success': False, 'error': 'Ошибка сохранения'})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/admin/restore_db', methods=['POST'])
+@seller_required
+def restore_db():
+    """Восстановление базы из GitHub"""
+    try:
+        success = db_manager.load_db_from_github()
+        if success:
+            return jsonify({'success': True, 'message': 'База восстановлена из GitHub'})
+        else:
+            return jsonify({'success': False, 'error': 'Не удалось восстановить базу'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/admin/db_status')
+@seller_required
+def db_status():
+    """Статус базы данных"""
+    db_exists = os.path.exists('shop.db')
+    db_size = os.path.getsize('shop.db') if db_exists else 0
+    
+    return jsonify({
+        'exists': db_exists,
+        'size_kb': round(db_size / 1024, 2),
+        'last_save': db_manager.last_save_time if hasattr(db_manager, 'last_save_time') else None
+    })
 
 # ==================== ЗАПУСК СЕРВЕРА ====================
 if __name__ == '__main__':
-    # Автоматический бэкап каждые 30 минут
-    def periodic_backup():
-        while True:
-            time.sleep(1800)  # 30 минут
-            backup_system.queue_backup("periodic")
-    
-    threading.Thread(target=periodic_backup, daemon=True).start()
-    
-    # Запуск сервера
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
