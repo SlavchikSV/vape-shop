@@ -17,5 +17,5 @@ services:
 databases:
   - name: shop-db
     plan: free
-    databaseName: shop
-    user: shop_user
+    databaseName: vape_shop
+    user: vape_shop_user
