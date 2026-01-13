@@ -717,17 +717,17 @@ def api_active_sellers():
 
 # ==================== ЗАПУСК ====================
 
-if __name__ == '__main__':
-    # Для локальной разработки
-    with app.app_context():
+# Инициализация БД при запуске
+with app.app_context():
+    try:
         init_db()
-    
+        print("✅ База данных готова")
+    except Exception as e:
+        print(f"⚠️ Ошибка при инициализации БД: {e}")
+
+# Render требует явного указания порта в gunicorn
+if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port, debug=True)
-else:
-    # Для Render
-    with app.app_context():
-        try:
-            init_db()
-        except Exception as e:
-            print(f"⚠️ Ошибка при инициализации БД: {e}")
+    print(f"🚀 Запуск сервера на порту {port}")
+    app.run(host='0.0.0.0', port=port, debug=False)
+
