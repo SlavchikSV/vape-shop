@@ -1043,4 +1043,830 @@ def add_item():
         item_id = cursor.fetchone()[0]
         
         if data['status'] != 'в пути':
-            cursor.execute('
+            cursor.execute('''
+            INSERT INTO transactions (date, type, item_id, amount, note)
+            VALUES (%s, %s, %s, %s, %s)
+            ''', (
+                datetime.now().strftime('%Y-%m-%d'),
+                'purchase',
+                item_id,
+                -float(data['cost_price']),
+                f'Покупка {data["name"]}'
+            ))
+        
+        conn.commit()
+        
+        log_action(session['seller_id'], 'add_item', item_id, 
+                  f'Добавлен товар: {data["name"]}')
+        
+        return jsonify({'success': True, 'id': item_id})
+        
+    except Exception as e:
+        print(f"❌ Ошибка добавления товара: {e}")
+        if conn:
+            conn.rollback()
+        log_action(session.get('seller_id'), 'error', details=f'Ошибка добавления: {str(e)}')
+        return jsonify({'error': str(e)}), 400
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+@app.route('/seller/update/<int:item_id>', methods=['POST'])
+def update_item(item_id):
+    """Обновить статус товара (AJAX)"""
+    if not session.get('seller_logged_in'):
+        return jsonify({'error': 'Нет доступа'}), 401
+    
+    conn = None
+    cursor = None
+    try:
+        data = request.get_json()
+        new_status = data['status']
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT * FROM items WHERE id = %s', (item_id,))
+        item_tuple = cursor.fetchone()
+        
+        if not item_tuple:
+            return jsonify({'error': 'Товар не найден'}), 404
+        
+        columns = [desc[0] for desc in cursor.description]
+        item = dict(zip(columns, item_tuple))
+        
+        old_status = item['status']
+        
+        # Обновляем статус
+        if new_status == 'продано':
+            cursor.execute('UPDATE items SET status = %s, date_sold = %s WHERE id = %s',
+                          (new_status, datetime.now().strftime('%Y-%m-%d'), item_id))
+        elif new_status == 'взял себе':
+            cursor.execute('UPDATE items SET status = %s, date_taken = %s WHERE id = %s',
+                          (new_status, datetime.now().strftime('%Y-%m-%d'), item_id))
+        else:
+            cursor.execute('UPDATE items SET status = %s WHERE id = %s', (new_status, item_id))
+        
+        # Добавляем транзакцию продажи
+        if old_status != 'продано' and new_status == 'продано':
+            cursor.execute('''
+            INSERT INTO transactions (date, type, item_id, amount, note)
+            VALUES (%s, %s, %s, %s, %s)
+            ''', (
+                datetime.now().strftime('%Y-%m-%d'),
+                'sale',
+                item_id,
+                float(item['sell_price']),
+                f'Продажа {item["name"]}'
+            ))
+        
+        conn.commit()
+        
+        log_action(session['seller_id'], 'update_item', item_id, 
+                  f'Статус изменен: {old_status} -> {new_status}')
+        
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        print(f"❌ Ошибка обновления товара: {e}")
+        if conn:
+            conn.rollback()
+        log_action(session.get('seller_id'), 'error', details=f'Ошибка обновления: {str(e)}')
+        return jsonify({'error': str(e)}), 400
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+@app.route('/seller/keepalive')
+def keepalive():
+    """Поддержание активности сессии"""
+    if not session.get('seller_logged_in') or not session.get('session_token'):
+        return jsonify({'error': 'Нет доступа'}), 401
+    
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+        UPDATE active_sessions 
+        SET last_activity = %s 
+        WHERE session_token = %s AND seller_id = %s
+        ''', (datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'), session['session_token'], session['seller_id']))
+        
+        conn.commit()
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        print(f"❌ Ошибка keepalive: {e}")
+        return jsonify({'error': str(e)}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+@app.route('/seller/notifications')
+def get_notifications():
+    """Получить непрочитанные уведомления"""
+    if not session.get('seller_logged_in'):
+        return jsonify({'error': 'Нет доступа'}), 401
+    
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT n.*, s.username as from_username, s.display_name as from_display_name
+            FROM notifications n
+            LEFT JOIN sellers s ON n.from_seller_id = s.id
+            WHERE n.seller_id = %s AND n.is_read = FALSE
+            ORDER BY n.created_at DESC
+            LIMIT 20
+        ''', (session['seller_id'],))
+        
+        notifications = cursor.fetchall()
+        columns = [desc[0] for desc in cursor.description]
+        
+        notifications_list = []
+        for notif_tuple in notifications:
+            notifications_list.append(dict(zip(columns, notif_tuple)))
+        
+        if notifications_list:
+            cursor.execute('UPDATE notifications SET is_read = TRUE WHERE seller_id = %s AND is_read = FALSE', 
+                          (session['seller_id'],))
+        
+        conn.commit()
+        return jsonify({'notifications': notifications_list})
+        
+    except Exception as e:
+        print(f"❌ Ошибка получения уведомлений: {e}")
+        return jsonify({'notifications': []})
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+@app.route('/seller/notification_count')
+def notification_count():
+    """Количество непрочитанных уведомлений"""
+    if not session.get('seller_logged_in'):
+        return jsonify({'error': 'Нет доступа'}), 401
+    
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT COUNT(*) FROM notifications WHERE seller_id = %s AND is_read = FALSE', 
+                      (session['seller_id'],))
+        
+        count = cursor.fetchone()[0]
+        return jsonify({'count': count})
+        
+    except Exception as e:
+        print(f"❌ Ошибка подсчета уведомлений: {e}")
+        return jsonify({'count': 0})
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+@app.route('/seller/mark_all_read', methods=['POST'])
+def mark_all_read():
+    """Пометить все уведомления как прочитанные"""
+    if not session.get('seller_logged_in'):
+        return jsonify({'error': 'Нет доступа'}), 401
+    
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('UPDATE notifications SET is_read = TRUE WHERE seller_id = %s', 
+                      (session['seller_id'],))
+        
+        conn.commit()
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        print(f"❌ Ошибка пометки уведомлений: {e}")
+        return jsonify({'error': str(e)}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+@app.route('/seller/active_sellers')
+def get_active_sellers_list():
+    """Получить список активных продавцов"""
+    if not session.get('seller_logged_in'):
+        return jsonify({'error': 'Нет доступа'}), 401
+    
+    active_sellers = get_active_sellers()
+    return jsonify({'active_sellers': active_sellers})
+
+@app.route('/seller/active_sellers_count_public')
+def active_sellers_count_public():
+    """Количество активных продавцов (публичный доступ)"""
+    clear_old_sessions()
+    
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        five_minutes_ago = (datetime.utcnow() - timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S')
+        
+        cursor.execute('''
+            SELECT COUNT(DISTINCT seller_id) as cnt
+            FROM active_sessions 
+            WHERE is_active = TRUE AND last_activity > %s
+        ''', (five_minutes_ago,))
+        
+        count = cursor.fetchone()[0]
+        return jsonify({'count': count})
+        
+    except Exception as e:
+        print(f"❌ Ошибка подсчета продавцов: {e}")
+        return jsonify({'count': 0})
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+@app.route('/seller/active_sellers_list_public')
+def active_sellers_list_public():
+    """Список активных продавцов (публичный доступ)"""
+    clear_old_sessions()
+    
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        five_minutes_ago = (datetime.utcnow() - timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S')
+        
+        cursor.execute('''
+            SELECT s.username, s.display_name, a.login_time
+            FROM active_sessions a
+            JOIN sellers s ON a.seller_id = s.id
+            WHERE a.is_active = TRUE AND a.last_activity > %s
+            ORDER BY a.last_activity DESC
+            LIMIT 10
+        ''', (five_minutes_ago,))
+        
+        sellers = cursor.fetchall()
+        
+        sellers_list = []
+        for seller in sellers:
+            try:
+                login_time = seller[2]
+                if isinstance(login_time, str):
+                    utc_time = datetime.strptime(login_time, '%Y-%m-%d %H:%M:%S')
+                    local_time = utc_time + timedelta(hours=3)
+                    login_time_short = local_time.strftime('%H:%M')
+                else:
+                    login_time_short = login_time.strftime('%H:%M')
+            except:
+                login_time_short = seller[2][11:16] if seller[2] and len(str(seller[2])) > 16 else '??:??'
+            
+            sellers_list.append({
+                'username': seller[0],
+                'display_name': seller[1] or seller[0],
+                'login_time_short': login_time_short
+            })
+        
+        return jsonify({'sellers': sellers_list})
+        
+    except Exception as e:
+        print(f"❌ Ошибка списка продавцов: {e}")
+        return jsonify({'sellers': []})
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+@app.route('/seller/check_session')
+def check_session():
+    """Проверка валидности сессии"""
+    if not session.get('seller_logged_in') or not session.get('session_token'):
+        return jsonify({'valid': False, 'reason': 'no_session'}), 401
+    
+    seller_id = session['seller_id']
+    session_token = session['session_token']
+    
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT 1 FROM active_sessions 
+            WHERE seller_id = %s AND session_token = %s AND is_active = TRUE
+        ''', (seller_id, session_token))
+        
+        current_session = cursor.fetchone()
+        
+        if current_session:
+            return jsonify({'valid': True})
+        else:
+            session.clear()
+            return jsonify({'valid': False, 'reason': 'session_replaced'}), 401
+            
+    except Exception as e:
+        print(f"❌ Ошибка проверки сессии: {e}")
+        return jsonify({'valid': False, 'reason': 'error'}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+@app.route('/buyer/active_sellers')
+def buyer_active_sellers():
+    """API для получения активных продавцов"""
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        ten_minutes_ago = (datetime.utcnow() - timedelta(minutes=10)).strftime('%Y-%m-%d %H:%M:%S')
+        
+        cursor.execute('''
+            SELECT s.id, s.username, s.display_name, a.login_time
+            FROM active_sessions a
+            JOIN sellers s ON a.seller_id = s.id
+            WHERE a.is_active = TRUE 
+            AND a.last_activity > %s
+            ORDER BY a.last_activity DESC
+        ''', (ten_minutes_ago,))
+        
+        sellers = cursor.fetchall()
+        
+        simplified_sellers = []
+        for seller in sellers:
+            try:
+                login_time = seller[3]
+                if isinstance(login_time, str):
+                    utc_time = datetime.strptime(login_time, '%Y-%m-%d %H:%M:%S')
+                    local_time = utc_time + timedelta(hours=3)
+                    login_time_short = local_time.strftime('%H:%M')
+                else:
+                    login_time_short = login_time.strftime('%H:%M')
+            except:
+                login_time_short = seller[3][11:16] if seller[3] and len(str(seller[3])) > 16 else '??:??'
+            
+            simplified_sellers.append({
+                'id': seller[0],
+                'username': seller[1],
+                'display_name': seller[2] or seller[1],
+                'login_time_short': login_time_short
+            })
+        
+        return jsonify({'active_sellers': simplified_sellers})
+        
+    except Exception as e:
+        print(f"❌ Ошибка получения продавцов: {e}")
+        return jsonify({'active_sellers': []})
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+# ==================== МАРШРУТЫ ДЛЯ ПОСТАВОК (PostgreSQL версия) ====================
+
+@app.route('/seller/shipments')
+def get_shipments():
+    """Получить список всех поставок"""
+    if not session.get('seller_logged_in'):
+        return jsonify({'error': 'Нет доступа'}), 401
+    
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT * FROM shipments 
+            ORDER BY order_date DESC, id DESC
+        ''')
+        
+        shipments = cursor.fetchall()
+        columns = [desc[0] for desc in cursor.description]
+        
+        shipments_list = []
+        for shipment_tuple in shipments:
+            shipments_list.append(dict(zip(columns, shipment_tuple)))
+        
+        return jsonify({'shipments': shipments_list})
+        
+    except Exception as e:
+        print(f"❌ Ошибка получения поставок: {e}")
+        return jsonify({'error': str(e)}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+@app.route('/seller/shipments/create', methods=['POST'])
+def create_shipment():
+    """Создать новую поставку"""
+    if not session.get('seller_logged_in'):
+        return jsonify({'error': 'Нет доступа'}), 401
+    
+    conn = None
+    cursor = None
+    try:
+        data = request.get_json()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Получаем последний номер
+        cursor.execute('SELECT shipment_number FROM shipments ORDER BY id DESC LIMIT 1')
+        last_shipment = cursor.fetchone()
+        
+        if last_shipment and last_shipment[0].startswith('SHIP-'):
+            last_num = int(last_shipment[0].split('-')[1])
+            new_num = last_num + 1
+        else:
+            new_num = 1
+        
+        shipment_number = f"SHIP-{new_num:03d}"
+        
+        cursor.execute('''
+        INSERT INTO shipments (shipment_number, order_date, delivery_cost, status)
+        VALUES (%s, %s, %s, %s) RETURNING id
+        ''', (
+            shipment_number,
+            data['order_date'],
+            float(data['delivery_cost']),
+            data['status']
+        ))
+        
+        shipment_id = cursor.fetchone()[0]
+        
+        conn.commit()
+        
+        log_action(session['seller_id'], 'create_shipment', 
+                  details=f'Создана поставка {shipment_number}')
+        
+        return jsonify({
+            'success': True, 
+            'shipment_id': shipment_id,
+            'shipment_number': shipment_number
+        })
+        
+    except Exception as e:
+        print(f"❌ Ошибка создания поставки: {e}")
+        if conn:
+            conn.rollback()
+        log_action(session.get('seller_id'), 'error', 
+                  details=f'Ошибка создания поставки: {str(e)}')
+        return jsonify({'error': str(e)}), 400
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+@app.route('/seller/shipments/<int:shipment_id>/add_items', methods=['POST'])
+def add_items_to_shipment(shipment_id):
+    """Добавить товары в поставку"""
+    if not session.get('seller_logged_in'):
+        return jsonify({'error': 'Нет доступа'}), 401
+    
+    conn = None
+    cursor = None
+    try:
+        data = request.get_json()
+        items = data['items']
+        status = data.get('status', 'в пути')
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT * FROM shipments WHERE id = %s', (shipment_id,))
+        shipment_tuple = cursor.fetchone()
+        
+        if not shipment_tuple:
+            return jsonify({'error': 'Поставка не найдена'}), 404
+        
+        columns = [desc[0] for desc in cursor.description]
+        shipment = dict(zip(columns, shipment_tuple))
+        
+        added_items = []
+        for item_data in items:
+            cursor.execute('''
+            INSERT INTO items (name, cost_price, sell_price, status, 
+                             shipment_id, date_arrived, manual_price)
+            VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id
+            ''', (
+                item_data['name'],
+                float(item_data['cost_price']),
+                float(item_data['sell_price']),
+                status,
+                shipment_id,
+                shipment['order_date'],
+                float(item_data['sell_price'])
+            ))
+            
+            item_id = cursor.fetchone()[0]
+            added_items.append({
+                'id': item_id,
+                'name': item_data['name']
+            })
+            
+            if status == 'в наличии':
+                cursor.execute('''
+                INSERT INTO transactions (date, type, item_id, amount, note)
+                VALUES (%s, %s, %s, %s, %s)
+                ''', (
+                    datetime.now().strftime('%Y-%m-%d'),
+                    'purchase',
+                    item_id,
+                    -float(item_data['cost_price']),
+                    f'Покупка {item_data["name"]}'
+                ))
+        
+        # Обновляем счетчик товаров
+        cursor.execute('''
+        UPDATE shipments 
+        SET total_items = total_items + %s, updated_at = %s
+        WHERE id = %s
+        ''', (len(items), datetime.now().strftime('%Y-%m-%d %H:%M:%S'), shipment_id))
+        
+        conn.commit()
+        
+        log_action(session['seller_id'], 'add_items_to_shipment', 
+                  details=f'Добавлено {len(items)} товаров в поставку #{shipment_id}')
+        
+        return jsonify({
+            'success': True, 
+            'added_count': len(items),
+            'items': added_items
+        })
+        
+    except Exception as e:
+        print(f"❌ Ошибка добавления товаров: {e}")
+        if conn:
+            conn.rollback()
+        log_action(session.get('seller_id'), 'error', 
+                  details=f'Ошибка добавления товаров: {str(e)}')
+        return jsonify({'error': str(e)}), 400
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+@app.route('/seller/shipments/<int:shipment_id>/update_status', methods=['POST'])
+def update_shipment_status(shipment_id):
+    """Обновить статус поставки"""
+    if not session.get('seller_logged_in'):
+        return jsonify({'error': 'Нет доступа'}), 401
+    
+    conn = None
+    cursor = None
+    try:
+        data = request.get_json()
+        new_status = data['status']
+        received_date = data.get('received_date', datetime.now().strftime('%Y-%m-%d'))
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+        UPDATE shipments 
+        SET status = %s, received_date = %s, updated_at = %s
+        WHERE id = %s
+        ''', (new_status, received_date, 
+              datetime.now().strftime('%Y-%m-%d %H:%M:%S'), shipment_id))
+        
+        cursor.execute('''
+        UPDATE items 
+        SET status = %s, date_arrived = %s
+        WHERE shipment_id = %s AND status != 'продано' AND status != 'взял себе'
+        ''', (new_status, received_date, shipment_id))
+        
+        if new_status == 'в наличии':
+            cursor.execute('''
+            SELECT id, name, cost_price FROM items 
+            WHERE shipment_id = %s AND status = 'в наличии'
+            ''', (shipment_id,))
+            
+            items = cursor.fetchall()
+            
+            for item in items:
+                cursor.execute('''
+                SELECT tx_id FROM transactions 
+                WHERE item_id = %s AND type = 'purchase'
+                ''', (item[0],))
+                
+                existing_tx = cursor.fetchone()
+                
+                if not existing_tx:
+                    cursor.execute('''
+                    INSERT INTO transactions (date, type, item_id, amount, note)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ''', (
+                        received_date,
+                        'purchase',
+                        item[0],
+                        -float(item[2]),
+                        f'Покупка {item[1]}'
+                    ))
+        
+        conn.commit()
+        
+        log_action(session['seller_id'], 'update_shipment_status', 
+                  details=f'Статус поставки #{shipment_id} изменен на "{new_status}"')
+        
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        print(f"❌ Ошибка обновления статуса: {e}")
+        if conn:
+            conn.rollback()
+        log_action(session.get('seller_id'), 'error', 
+                  details=f'Ошибка обновления статуса поставки: {str(e)}')
+        return jsonify({'error': str(e)}), 400
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+@app.route('/seller/items/<int:item_id>/update_price', methods=['POST'])
+def update_item_price(item_id):
+    """Обновить цену товара"""
+    if not session.get('seller_logged_in'):
+        return jsonify({'error': 'Нет доступа'}), 401
+    
+    conn = None
+    cursor = None
+    try:
+        data = request.get_json()
+        new_price = float(data['sell_price'])
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+        UPDATE items 
+        SET manual_price = %s
+        WHERE id = %s
+        ''', (new_price, item_id))
+        
+        conn.commit()
+        
+        log_action(session['seller_id'], 'update_item_price', item_id,
+                  f'Цена изменена на {new_price} BYN')
+        
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        print(f"❌ Ошибка обновления цены: {e}")
+        if conn:
+            conn.rollback()
+        log_action(session.get('seller_id'), 'error', 
+                  details=f'Ошибка обновления цены: {str(e)}')
+        return jsonify({'error': str(e)}), 400
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+@app.route('/seller/items/<int:item_id>/delete', methods=['POST'])
+def delete_item(item_id):
+    """Удалить товар"""
+    if not session.get('seller_logged_in'):
+        return jsonify({'error': 'Нет доступа'}), 401
+    
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT name, shipment_id FROM items WHERE id = %s', (item_id,))
+        item_tuple = cursor.fetchone()
+        
+        if not item_tuple:
+            return jsonify({'error': 'Товар не найден'}), 404
+        
+        item_name = item_tuple[0]
+        shipment_id = item_tuple[1]
+        
+        if shipment_id:
+            cursor.execute('''
+            UPDATE shipments 
+            SET total_items = total_items - 1, updated_at = %s
+            WHERE id = %s
+            ''', (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), shipment_id))
+        
+        cursor.execute('DELETE FROM items WHERE id = %s', (item_id,))
+        cursor.execute('DELETE FROM transactions WHERE item_id = %s', (item_id,))
+        
+        conn.commit()
+        
+        log_action(session['seller_id'], 'delete_item', 
+                  details=f'Удален товар: {item_name} (ID: {item_id})')
+        
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        print(f"❌ Ошибка удаления товара: {e}")
+        if conn:
+            conn.rollback()
+        log_action(session.get('seller_id'), 'error', 
+                  details=f'Ошибка удаления товара: {str(e)}')
+        return jsonify({'error': str(e)}), 400
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+@app.route('/seller/items/shipment/<int:shipment_id>')
+def get_items_by_shipment(shipment_id):
+    """Получить товары по ID поставки"""
+    if not session.get('seller_logged_in'):
+        return jsonify({'error': 'Нет доступа'}), 401
+    
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT * FROM items 
+            WHERE shipment_id = %s
+            ORDER BY id
+        ''', (shipment_id,))
+        
+        items = cursor.fetchall()
+        columns = [desc[0] for desc in cursor.description]
+        
+        items_list = []
+        for item_tuple in items:
+            items_list.append(dict(zip(columns, item_tuple)))
+        
+        return jsonify({'items': items_list})
+        
+    except Exception as e:
+        print(f"❌ Ошибка получения товаров поставки: {e}")
+        return jsonify({'items': []})
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+@app.template_filter('utc_to_local')
+def utc_to_local_filter(utc_str):
+    """Фильтр для преобразования UTC времени в локальное в шаблонах"""
+    return utc_to_local(utc_str)
+
+@app.template_filter('truncate')
+def truncate_filter(s, length=30):
+    """Обрезает строку до указанной длины"""
+    if not s:
+        return ""
+    if len(s) <= length:
+        return s
+    return s[:length] + "..."
+
+# ==================== ЗАПУСК СЕРВЕРА ====================
+
+if __name__ == '__main__':
+    # Очищаем старые сессии при запуске
+    clear_old_sessions()
+    
+    # Запускаем сервер
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port, debug=False)
