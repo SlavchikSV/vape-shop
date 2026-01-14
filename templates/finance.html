@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+
+{% block title %}Финансовый учет{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 class="text-center mb-4">📊 Финансовый учет</h1>
+    
+    <!-- Финансовая сводка -->
+    <div class="row mb-4">
+        <div class="col-md-3 mb-3">
+            <div class="card finance-card finance-income">
+                <div class="card-body">
+                    <h5 class="card-title">Продажи</h5>
+                    <h2 class="text-success">{{ "%.2f"|format(total_sales) }} BYN</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="card finance-card finance-expense">
+                <div class="card-body">
+                    <h5 class="card-title">Закупки</h5>
+                    <h2 class="text-danger">{{ "%.2f"|format(total_purchases) }} BYN</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="card finance-card">
+                <div class="card-body">
+                    <h5 class="card-title">Доставка</h5>
+                    <h2 class="text-warning">{{ "%.2f"|format(total_delivery) }} BYN</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="card finance-card finance-profit">
+                <div class="card-body">
+                    <h5 class="card-title">Прибыль</h5>
+                    <h2 class="text-primary">{{ "%.2f"|format(profit) }} BYN</h2>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Таблица транзакций -->
+    <div class="card">
+        <div class="card-header">
+            <h4 class="mb-0"><i class="fas fa-list"></i> Все транзакции</h4>
+        </div>
+        <div class="card-body">
+            {% if transactions %}
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Дата</th>
+                            <th>Тип</th>
+                            <th>Товар/Поставка</th>
+                            <th>Сумма</th>
+                            <th>Примечание</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for tx in transactions %}
+                        <tr class="{% if tx.type == 'sale' %}table-success{% elif tx.type == 'purchase' %}table-danger{% elif tx.type == 'delivery' %}table-warning{% endif %}">
+                            <td>{{ tx.date }}</td>
+                            <td>
+                                {% if tx.type == 'sale' %}
+                                    <span class="badge bg-success">Продажа</span>
+                                {% elif tx.type == 'purchase' %}
+                                    <span class="badge bg-danger">Закупка</span>
+                                {% elif tx.type == 'delivery' %}
+                                    <span class="badge bg-warning">Доставка</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">{{ tx.type }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if tx.item_name %}
+                                    {{ tx.item_name }}
+                                {% elif tx.shipment_number %}
+                                    {{ tx.shipment_number }}
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </td>
+                            <td>
+                                <strong class="{% if tx.type == 'sale' %}text-success{% elif tx.type == 'purchase' or tx.type == 'delivery' %}text-danger{% endif %}">
+                                    {{ "%.2f"|format(tx.amount) }} BYN
+                                </strong>
+                            </td>
+                            <td>{{ tx.note }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="alert alert-warning text-center">
+                <h5><i class="fas fa-receipt"></i> Нет транзакций</h5>
+                <p>Транзакции появятся после операций с товарами.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    
+</div>
+{% endblock %}
