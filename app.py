@@ -194,6 +194,8 @@ def init_db():
         if conn:
             conn.close()
 
+# В функции check_and_init_db() добавьте после инициализации:
+
 def check_and_init_db():
     """Проверить и инициализировать БД при запуске"""
     print("🔍 Проверяю состояние базы данных...")
@@ -221,6 +223,8 @@ def check_and_init_db():
                 init_db()
             else:
                 print("✅ База данных уже инициализирована")
+                # АВТОМАТИЧЕСКИ ДОБАВЛЯЕМ НОВЫЕ СТОЛБЦЫ
+                update_database_structure()
             
             return True
             
@@ -233,6 +237,81 @@ def check_and_init_db():
             time.sleep(2)
     
     return False
+
+def update_database_structure():
+    """Добавить недостающие столбцы"""
+    print("🔄 Проверяю структуру таблиц...")
+    
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Проверяем существующие столбцы в items
+        cursor.execute("""
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'items'
+        """)
+        existing_columns = [row[0] for row in cursor.fetchall()]
+        
+        # Добавляем недостающие столбцы
+        missing_columns = []
+        
+        if 'is_wholesale' not in existing_columns:
+            missing_columns.append('is_wholesale BOOLEAN DEFAULT FALSE')
+        
+        if 'reserved_until' not in existing_columns:
+            missing_columns.append('reserved_until TEXT')
+        
+        if missing_columns:
+            print(f"➕ Добавляю недостающие столбцы: {', '.join([col.split()[0] for col in missing_columns])}")
+            for column_def in missing_columns:
+                try:
+                    cursor.execute(f'ALTER TABLE items ADD COLUMN {column_def}')
+                    print(f"✅ Добавлен столбец: {column_def.split()[0]}")
+                except Exception as e:
+                    print(f"⚠️ Ошибка добавления столбца: {e}")
+            
+            conn.commit()
+        
+        # Проверяем shipments
+        cursor.execute("""
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'shipments'
+        """)
+        existing_columns_ship = [row[0] for row in cursor.fetchall()]
+        
+        if 'is_wholesale' not in existing_columns_ship:
+            try:
+                cursor.execute('ALTER TABLE shipments ADD COLUMN is_wholesale BOOLEAN DEFAULT FALSE')
+                print("✅ Добавлен столбец is_wholesale в shipments")
+            except Exception as e:
+                print(f"⚠️ Ошибка добавления столбца: {e}")
+        
+        if 'sold_items' not in existing_columns_ship:
+            try:
+                cursor.execute('ALTER TABLE shipments ADD COLUMN sold_items INTEGER DEFAULT 0')
+                print("✅ Добавлен столбец sold_items в shipments")
+            except Exception as e:
+                print(f"⚠️ Ошибка добавления столбца: {e}")
+        
+        if 'is_wholesale' in existing_columns_ship or 'sold_items' in existing_columns_ship:
+            conn.commit()
+        
+        print("🎉 Структура базы данных проверена и обновлена!")
+        
+    except Exception as e:
+        print(f"❌ Ошибка обновления структуры: {e}")
+        if conn:
+            conn.rollback()
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
 # Инициализируем БД при импорте модуля
 print("=" * 50)
@@ -1634,4 +1713,5 @@ if __name__ == '__main__':
     clear_old_sessions()
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
 
