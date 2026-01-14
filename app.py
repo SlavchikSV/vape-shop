@@ -1444,7 +1444,7 @@ def update_item_price(item_id):
         conn.commit()
         
         log_action(session['seller_id'], 'update_item_price', item_id=item_id,
-                  f'Цена изменена на {new_price} BYN')
+                  details=f'Цена изменена на {new_price} BYN')
         
         return jsonify({'success': True})
         
@@ -1634,3 +1634,4 @@ if __name__ == '__main__':
     clear_old_sessions()
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
