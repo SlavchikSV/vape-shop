@@ -1,52 +1,31 @@
 <!-- Модальное окно добавления поставки -->
-<div class="modal fade" id="addShipmentModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
+<div class="modal fade" id="addShipmentModal" tabindex="-1">
+    <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
-                <h5 class="modal-title">
-                    <i class="fas fa-truck-loading"></i> Новая поставка
-                </h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                <h5 class="modal-title"><i class="fas fa-truck-loading"></i> Новая поставка</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <form id="shipmentForm">
                     <div class="mb-3">
-                        <label class="form-label">Дата заказа поставки:</label>
+                        <label class="form-label">Дата заказа:</label>
                         <input type="date" class="form-control" id="shipmentOrderDate" 
                                value="{{ now.strftime('%Y-%m-%d') }}" required>
                     </div>
                     
-                    <div class="mb-3">
-                        <label class="form-label">Стоимость доставки (BYN):</label>
-                        <div class="input-group">
-                            <input type="number" class="form-control" id="shipmentDeliveryCost" 
-                                   value="10" step="0.01" min="0" required>
-                            <span class="input-group-text">BYN</span>
-                        </div>
-                        <small class="form-text text-muted">
-                            Эта сумма распределяется на все товары в поставке
-                        </small>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Начальный статус:</label>
-                        <select class="form-control" id="shipmentStatus">
-                            <option value="в пути" selected>в пути</option>
-                            <option value="в наличии">в наличии</option>
-                        </select>
-                    </div>
-                    
-                    <div class="alert alert-info">
-                        <i class="fas fa-info-circle"></i>
-                        <strong>Номер поставки будет сгенерирован автоматически</strong><br>
-                        Формат: SHIP-001, SHIP-002 и т.д.
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="shipmentIsWholesale">
+                        <label class="form-check-label" for="shipmentIsWholesale">
+                            Оптовая поставка (товары не будут видны в розничном каталоге)
+                        </label>
                     </div>
                 </form>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
                 <button type="button" class="btn btn-primary" onclick="createShipment()">
-                    <i class="fas fa-check"></i> Создать поставку
+                    <i class="fas fa-check"></i> Создать
                 </button>
             </div>
         </div>
@@ -54,47 +33,55 @@
 </div>
 
 <!-- Модальное окно для массового добавления товаров -->
-<div class="modal fade" id="addItemsModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
+<div class="modal fade" id="addItemsModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
         <div class="modal-content">
             <div class="modal-header bg-info text-white">
                 <h5 class="modal-title">
                     <i class="fas fa-boxes"></i> Добавить товары в поставку
                 </h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <div class="alert alert-info mb-3">
                     <i class="fas fa-info-circle"></i>
-                    <strong>Формат ввода:</strong> Каждый товар на новой строке<br>
-                    <strong>Синтаксис:</strong> Название, Себестоимость, Цена продажи<br>
-                    <strong>Пример:</strong> <code>Podonki - яблочные червячки, 10.5, 15</code>
+                    Добавьте товары в поставку. Все товары получат статус "в пути".
                 </div>
                 
-                <div class="mb-3">
-                    <label class="form-label">Товары:</label>
-                    <textarea class="form-control" id="itemsTextArea" 
-                              rows="12" 
-                              placeholder="Catswill salt - кислые яблочные червячки, 10.5, 14&#10;ZLOY - апельсин, 10.5, 14&#10;Catswill Extra - черешня-малина, 10.5, 15"></textarea>
-                    <small class="form-text text-muted">
-                        Каждая строка = отдельный товар
-                    </small>
+                <div id="itemsContainer">
+                    <div class="item-row mb-3 border p-3 rounded">
+                        <div class="row">
+                            <div class="col-md-5">
+                                <label class="form-label">Название:</label>
+                                <input type="text" class="form-control item-name" 
+                                       placeholder="Название товара">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Себестоимость:</label>
+                                <input type="number" class="form-control item-cost" 
+                                       step="0.01" min="0" placeholder="0.00">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Цена продажи:</label>
+                                <input type="number" class="form-control item-price" 
+                                       step="0.01" min="0" placeholder="0.00">
+                            </div>
+                            <div class="col-md-1 d-flex align-items-end">
+                                <button type="button" class="btn btn-danger btn-sm" onclick="removeItemRow(this)">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 
-                <div class="mb-3">
-                    <label class="form-label">Статус товаров:</label>
-                    <select class="form-control" id="itemsStatus">
-                        <option value="в пути" selected>в пути</option>
-                        <option value="в наличии">в наличии</option>
-                    </select>
-                    <small class="form-text text-muted">
-                        Все товары получат этот статус
-                    </small>
-                </div>
+                <button type="button" class="btn btn-outline-primary btn-sm" onclick="addItemRow()">
+                    <i class="fas fa-plus"></i> Добавить еще товар
+                </button>
                 
-                <div class="alert alert-warning">
+                <div class="alert alert-warning mt-3">
                     <i class="fas fa-exclamation-triangle"></i>
-                    <strong>Внимание:</strong> После добавления товаров нельзя изменить их поставку
+                    После добавления товаров их нельзя будет перенести в другую поставку.
                 </div>
             </div>
             <div class="modal-footer">
@@ -107,101 +94,44 @@
     </div>
 </div>
 
-<!-- Модальное окно добавления отдельного товара -->
-<div class="modal fade" id="addSingleItemModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header bg-success text-white">
-                <h5 class="modal-title">
-                    <i class="fas fa-plus-circle"></i> Добавить отдельный товар
-                </h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <form id="singleItemForm">
-                    <div class="mb-3">
-                        <label class="form-label">Название товара:</label>
-                        <input type="text" class="form-control" id="singleItemName" 
-                               placeholder="Например: Podonki - яблочные червячки" required>
-                    </div>
-                    
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Себестоимость (BYN):</label>
-                            <div class="input-group">
-                                <input type="number" class="form-control" id="singleItemCostPrice" 
-                                       step="0.01" min="0" required>
-                                <span class="input-group-text">BYN</span>
-                            </div>
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Цена продажи (BYN):</label>
-                            <div class="input-group">
-                                <input type="number" class="form-control" id="singleItemSellPrice" 
-                                       step="0.01" min="0" required>
-                                <span class="input-group-text">BYN</span>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Статус:</label>
-                        <select class="form-control" id="singleItemStatus" required>
-                            <option value="в наличии" selected>в наличии</option>
-                            <option value="в пути">в пути</option>
-                            <option value="продано">продано</option>
-                            <option value="взял себе">взял себе</option>
-                        </select>
-                    </div>
-                    
-                    <div class="alert alert-warning">
-                        <i class="fas fa-exclamation-triangle"></i>
-                        Этот товар не будет привязан к поставке
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
-                <button type="button" class="btn btn-success" onclick="addSingleItem()">
-                    <i class="fas fa-check"></i> Добавить товар
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
-
 <!-- Модальное окно изменения статуса поставки -->
-<div class="modal fade" id="updateShipmentStatusModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="updateShipmentStatusModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header bg-warning">
-                <h5 class="modal-title">
-                    <i class="fas fa-sync"></i> Изменить статус поставки
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                <h5 class="modal-title"><i class="fas fa-sync"></i> Изменить статус поставки</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <form id="updateStatusForm">
+                <form id="updateShipmentStatusForm">
                     <div class="mb-3">
                         <label class="form-label">Новый статус:</label>
                         <select class="form-control" id="newShipmentStatus" required>
-                            <option value="в пути">в пути</option>
                             <option value="в наличии">в наличии</option>
                         </select>
+                        <small class="form-text text-muted">
+                            Можно изменить только с "в пути" на "в наличии"
+                        </small>
                     </div>
                     
-                    <div class="mb-3" id="receivedDateGroup" style="display: none;">
+                    <div class="mb-3">
                         <label class="form-label">Дата получения:</label>
                         <input type="date" class="form-control" id="shipmentReceivedDate" 
-                               value="{{ now.strftime('%Y-%m-%d') }}">
+                               value="{{ now.strftime('%Y-%m-%d') }}" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Стоимость доставки (BYN):</label>
+                        <input type="number" class="form-control" id="shipmentDeliveryCost" 
+                               step="0.01" min="0" value="0" required>
                         <small class="form-text text-muted">
-                            Укажите, когда поставка фактически поступила на склад
+                            Укажите фактическую стоимость доставки. Будет добавлена отдельной транзакцией.
                         </small>
                     </div>
                     
                     <div class="alert alert-info">
                         <i class="fas fa-info-circle"></i>
-                        При смене статуса на "в наличии" все товары в поставке также изменят свой статус
+                        При смене статуса будут созданы транзакции закупки товаров и доставки.
                     </div>
                 </form>
             </div>
@@ -214,6 +144,3 @@
         </div>
     </div>
 </div>
-
-<!-- Toast-контейнер для уведомлений -->
-<div id="toast-container" class="position-fixed bottom-0 end-0 p-3" style="z-index: 1060;"></div>
