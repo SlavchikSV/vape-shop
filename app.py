@@ -4,10 +4,8 @@ from flask_bcrypt import Bcrypt
 from datetime import datetime, timedelta
 import secrets
 import psycopg2
-from psycopg2 import pool
 from psycopg2.extras import DictCursor
 import urllib.parse as urlparse
-import atexit
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
@@ -18,14 +16,11 @@ bcrypt = Bcrypt(app)
 def get_db_connection():
     """Подключение к PostgreSQL базе данных Render"""
     try:
-        # Получаем URL базы данных из переменных окружения Render
         database_url = os.environ.get('DATABASE_URL')
         
         if database_url:
-            # Для Render - используем SSL
             conn = psycopg2.connect(database_url, sslmode='require')
         else:
-            # Для локальной разработки
             conn = psycopg2.connect(
                 database="shop",
                 user="postgres",
@@ -45,7 +40,7 @@ def get_db():
     return get_db_connection()
 
 def init_db():
-    """Инициализация таблиц в PostgreSQL (автоматически при первом запуске)"""
+    """Инициализация таблиц в PostgreSQL"""
     print("🔄 Начинаю инициализацию базы данных...")
     
     conn = None
@@ -54,7 +49,7 @@ def init_db():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Создаем таблицу items если не существует
+        # Таблица товаров
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS items (
             id SERIAL PRIMARY KEY,
@@ -67,19 +62,23 @@ def init_db():
             date_arrived TEXT,
             date_sold TEXT,
             date_taken TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            is_wholesale BOOLEAN DEFAULT FALSE,
+            reserved_until TEXT
         )
         ''')
         
         # Таблица транзакций
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS transactions (
-            tx_id SERIAL PRIMARY KEY,
+            id SERIAL PRIMARY KEY,
             date TEXT NOT NULL,
             type TEXT NOT NULL,
             item_id INTEGER,
+            shipment_id INTEGER,
             amount DECIMAL(10,2),
-            note TEXT
+            note TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         ''')
         
@@ -104,6 +103,7 @@ def init_db():
             seller_id INTEGER,
             action_type TEXT NOT NULL,
             item_id INTEGER,
+            shipment_id INTEGER,
             details TEXT,
             ip_address TEXT,
             user_agent TEXT,
@@ -133,6 +133,7 @@ def init_db():
             from_seller_id INTEGER,
             message TEXT NOT NULL,
             item_id INTEGER,
+            shipment_id INTEGER,
             action_type TEXT,
             is_read BOOLEAN DEFAULT FALSE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -149,6 +150,8 @@ def init_db():
             delivery_cost DECIMAL(10,2) DEFAULT 0,
             status TEXT DEFAULT 'в пути',
             total_items INTEGER DEFAULT 0,
+            sold_items INTEGER DEFAULT 0,
+            is_wholesale BOOLEAN DEFAULT FALSE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -162,6 +165,7 @@ def init_db():
         default_sellers = [
             ('SlavchikSV', 'sv280606', 'Администратор', 'admin'),
             ('mkozlov', '020988mama', 'Главный администратор', 'admin'),
+            ('g_nix', 'IHHujhg655G', 'Оптовый менеджер', 'seller'),
         ]
         
         for username, password, display, role in default_sellers:
@@ -200,7 +204,6 @@ def check_and_init_db():
             conn = get_db_connection()
             cursor = conn.cursor()
             
-            # Проверяем есть ли таблица items
             cursor.execute("""
             SELECT EXISTS (
                 SELECT FROM information_schema.tables 
@@ -219,8 +222,6 @@ def check_and_init_db():
             else:
                 print("✅ База данных уже инициализирована")
             
-            # Показываем информацию о таблицах
-            show_db_info()
             return True
             
         except Exception as e:
@@ -232,32 +233,6 @@ def check_and_init_db():
             time.sleep(2)
     
     return False
-
-def show_db_info():
-    """Показать информацию о таблицах в БД"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-        SELECT table_name 
-        FROM information_schema.tables 
-        WHERE table_schema = 'public'
-        ORDER BY table_name
-        """)
-        tables = cursor.fetchall()
-        
-        print("\n📊 ТАБЛИЦЫ В БАЗЕ ДАННЫХ:")
-        for table in tables:
-            cursor.execute(f"SELECT COUNT(*) FROM {table[0]}")
-            count = cursor.fetchone()[0]
-            print(f"  - {table[0]}: {count} записей")
-        
-        cursor.close()
-        conn.close()
-        
-    except Exception as e:
-        print(f"⚠️ Не удалось получить информацию о таблицах: {e}")
 
 # Инициализируем БД при импорте модуля
 print("=" * 50)
@@ -280,7 +255,6 @@ def get_seller_by_username(username):
         cursor.execute('SELECT * FROM sellers WHERE username = %s', (username,))
         seller = cursor.fetchone()
         if seller:
-            # Преобразуем в словарь
             columns = [desc[0] for desc in cursor.description]
             return dict(zip(columns, seller))
         return None
@@ -320,13 +294,12 @@ def utc_to_local(utc_dt, format_only_time=False):
             
             utc_dt = parsed_dt
         
-        # Добавляем 3 часа для Минска (UTC+3)
         local_dt = utc_dt + timedelta(hours=3)
         
         if format_only_time:
             return local_dt.strftime('%H:%M')
         else:
-            return local_dt.strftime('%H:%M:%S')
+            return local_dt.strftime('%d.%m.%Y %H:%M:%S')
             
     except Exception as e:
         print(f"Ошибка конвертации времени {utc_dt}: {e}")
@@ -334,7 +307,7 @@ def utc_to_local(utc_dt, format_only_time=False):
             return utc_dt[11:16]
         return str(utc_dt)
 
-def log_action(seller_id, action_type, item_id=None, details="", ip_address=None):
+def log_action(seller_id, action_type, item_id=None, shipment_id=None, details="", ip_address=None):
     """Записать действие в лог"""
     conn = None
     cursor = None
@@ -345,65 +318,9 @@ def log_action(seller_id, action_type, item_id=None, details="", ip_address=None
         created_at_utc = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
         
         cursor.execute('''
-        INSERT INTO action_log (seller_id, action_type, item_id, details, ip_address, created_at)
-        VALUES (%s, %s, %s, %s, %s, %s)
-        ''', (seller_id, action_type, item_id, details, ip_address or request.remote_addr, created_at_utc))
-        
-        # Получаем информацию о продавце
-        cursor.execute('SELECT username, display_name FROM sellers WHERE id = %s', (seller_id,))
-        seller = cursor.fetchone()
-        
-        if seller:
-            seller_name = seller[1] or seller[0]
-            
-            if action_type == 'logout':
-                cursor.execute('DELETE FROM notifications WHERE seller_id = %s', (seller_id,))
-                print(f"🗑️ Удалены уведомления для {seller_name}")
-            elif action_type != 'login':
-                # Получаем активных продавцов кроме текущего
-                cursor.execute('''
-                    SELECT DISTINCT seller_id FROM active_sessions 
-                    WHERE seller_id != %s AND is_active = TRUE
-                ''', (seller_id,))
-                active_sellers = cursor.fetchall()
-                
-                # Создаем сообщение
-                action_messages = {
-                    'add_item': 'добавил новый товар',
-                    'update_item': 'изменил статус товара',
-                    'sale': 'продал товар',
-                    'purchase': 'купил товар для магазина',
-                    'personal': 'взял товар себе',
-                    'error': 'ошибка'
-                }
-                
-                action_msg = action_messages.get(action_type, action_type)
-                message = f"{seller_name} {action_msg}"
-                
-                if item_id and details:
-                    cursor.execute('SELECT name FROM items WHERE id = %s', (item_id,))
-                    item = cursor.fetchone()
-                    if item:
-                        message += f": {item[0]}"
-                    else:
-                        message += f": {details[:50]}"
-                elif details:
-                    message += f": {details[:50]}"
-                
-                # Создаем уведомления
-                for active_seller in active_sellers:
-                    receiver_id = active_seller[0]
-                    cursor.execute('''
-                        SELECT 1 FROM active_sessions 
-                        WHERE seller_id = %s AND is_active = TRUE
-                    ''', (receiver_id,))
-                    receiver_active = cursor.fetchone()
-                    
-                    if receiver_active:
-                        cursor.execute('''
-                        INSERT INTO notifications (seller_id, from_seller_id, message, item_id, action_type)
-                        VALUES (%s, %s, %s, %s, %s)
-                        ''', (receiver_id, seller_id, message, item_id, action_type))
+        INSERT INTO action_log (seller_id, action_type, item_id, shipment_id, details, ip_address, created_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        ''', (seller_id, action_type, item_id, shipment_id, details, ip_address or request.remote_addr, created_at_utc))
         
         conn.commit()
         
@@ -411,66 +328,6 @@ def log_action(seller_id, action_type, item_id=None, details="", ip_address=None
         print(f"❌ Ошибка при записи лога: {e}")
         if conn:
             conn.rollback()
-    finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
-
-def get_recent_actions(limit=10):
-    """Получить последние действия"""
-    conn = None
-    cursor = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT al.*, s.username, s.display_name
-            FROM action_log al
-            LEFT JOIN sellers s ON al.seller_id = s.id
-            ORDER BY al.created_at DESC
-            LIMIT %s
-        ''', (limit,))
-        
-        actions = cursor.fetchall()
-        columns = [desc[0] for desc in cursor.description]
-        
-        actions_list = []
-        for action in actions:
-            action_dict = dict(zip(columns, action))
-            
-            if action_dict['created_at']:
-                try:
-                    created_str = str(action_dict['created_at'])
-                    if ' ' in created_str:
-                        try:
-                            utc_time = datetime.strptime(created_str, '%Y-%m-%d %H:%M:%S')
-                        except:
-                            try:
-                                utc_time = datetime.strptime(created_str, '%Y-%m-%d %H:%M:%S.%f')
-                            except:
-                                utc_time = None
-                        
-                        if utc_time:
-                            local_time = utc_time + timedelta(hours=3)
-                            action_dict['created_at_local'] = local_time.strftime('%d.%m.%Y %H:%M:%S')
-                        else:
-                            action_dict['created_at_local'] = created_str
-                    else:
-                        action_dict['created_at_local'] = created_str
-                except Exception as e:
-                    action_dict['created_at_local'] = str(action_dict['created_at'])
-            else:
-                action_dict['created_at_local'] = ''
-            
-            actions_list.append(action_dict)
-        
-        return actions_list
-        
-    except Exception as e:
-        print(f"❌ Ошибка получения действий: {e}")
-        return []
     finally:
         if cursor:
             cursor.close()
@@ -485,7 +342,6 @@ def clear_old_sessions():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Удаляем сессии старше 8 часов
         cursor.execute('''
         DELETE FROM active_sessions 
         WHERE last_activity < NOW() - INTERVAL '8 hours'
@@ -531,7 +387,6 @@ def get_active_sellers():
         for seller_tuple in sellers:
             seller_dict = dict(zip(columns, seller_tuple))
             
-            # Конвертируем время входа
             if seller_dict['login_time']:
                 login_time_utc = seller_dict['login_time']
                 if isinstance(login_time_utc, str):
@@ -541,39 +396,7 @@ def get_active_sellers():
                         pass
                 
                 seller_dict['login_time_local'] = utc_to_local(login_time_utc)
-                seller_dict['login_time_short'] = seller_dict['login_time_local'][:5]
-            else:
-                seller_dict['login_time_local'] = ''
-                seller_dict['login_time_short'] = ''
-            
-            # Определяем активность
-            if seller_dict['last_activity']:
-                last_activity_utc = seller_dict['last_activity']
-                if isinstance(last_activity_utc, str):
-                    try:
-                        last_activity_utc = datetime.strptime(last_activity_utc, '%Y-%m-%d %H:%M:%S')
-                    except:
-                        pass
-                
-                minutes_since_activity = (now - last_activity_utc).total_seconds() / 60
-                is_really_active = minutes_since_activity < 5
-            else:
-                is_really_active = False
-            
-            seller_dict['is_really_active'] = is_really_active
-            
-            if is_really_active:
-                seller_dict['status'] = 'active'
-                seller_dict['status_class'] = 'success'
-                seller_dict['status_text'] = 'Активен'
-            elif minutes_since_activity < 30:
-                seller_dict['status'] = 'inactive'
-                seller_dict['status_class'] = 'warning'
-                seller_dict['status_text'] = 'Неактивен'
-            else:
-                seller_dict['status'] = 'very_inactive'
-                seller_dict['status_class'] = 'secondary'
-                seller_dict['status_text'] = 'Давно неактивен'
+                seller_dict['login_time_short'] = seller_dict['login_time_local'][11:16] if seller_dict['login_time_local'] else ''
             
             result.append(seller_dict)
         
@@ -596,14 +419,8 @@ def process_single_device_login(seller, flask_request):
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # УДАЛЯЕМ ВСЕ предыдущие сессии
         cursor.execute('DELETE FROM active_sessions WHERE seller_id = %s', (seller['id'],))
-        deleted_count = cursor.rowcount
         
-        if deleted_count > 0:
-            print(f"🗑️ Удалено {deleted_count} старых сессий для {seller['username']}")
-        
-        # Создаем новую сессию
         session_token = secrets.token_hex(32)
         
         cursor.execute('''
@@ -618,27 +435,22 @@ def process_single_device_login(seller, flask_request):
             datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
         ))
         
-        # Обновляем время последнего входа
         cursor.execute('UPDATE sellers SET last_login = %s WHERE id = %s',
                       (datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'), seller['id']))
         
         conn.commit()
         
-        # Сохраняем в сессии Flask
         session['seller_logged_in'] = True
         session['seller_id'] = seller['id']
         session['seller_username'] = seller['username']
         session['display_name'] = seller.get('display_name') or seller['username']
         session['session_token'] = session_token
         
-        # Сохраняем время входа
         login_time_utc = datetime.utcnow()
         session['login_time_utc'] = login_time_utc.strftime('%Y-%m-%d %H:%M:%S')
         session['login_time_local'] = utc_to_local(login_time_utc)
         
-        # Логируем вход
-        log_action(seller['id'], 'login', 
-                  details=f'Вход с {flask_request.remote_addr}')
+        log_action(seller['id'], 'login', details=f'Вход с {flask_request.remote_addr}')
         
         print(f"✅ Успешный вход: {seller['username']}")
         
@@ -655,6 +467,33 @@ def process_single_device_login(seller, flask_request):
         if conn:
             conn.close()
 
+def update_shipment_status_auto(shipment_id):
+    """Автоматически обновить статус поставки на проданную"""
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Получаем информацию о поставке
+        cursor.execute('SELECT total_items, sold_items FROM shipments WHERE id = %s', (shipment_id,))
+        shipment = cursor.fetchone()
+        
+        if shipment and shipment[0] > 0 and shipment[0] == shipment[1]:
+            cursor.execute('UPDATE shipments SET status = %s WHERE id = %s', ('продано', shipment_id))
+            conn.commit()
+            print(f"✅ Поставка #{shipment_id} автоматически помечена как проданная")
+            
+    except Exception as e:
+        print(f"❌ Ошибка автообновления статуса поставки: {e}")
+        if conn:
+            conn.rollback()
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
 # ==================== МАРШРУТЫ ====================
 
 @app.context_processor
@@ -664,12 +503,12 @@ def inject_now():
 
 @app.route('/')
 def index():
-    """Главная страница"""
-    return render_template('index.html')
+    """Перенаправляем сразу на страницу покупателя"""
+    return redirect(url_for('buyer'))
 
 @app.route('/buyer')
 def buyer():
-    """Страница для покупателей"""
+    """Страница для покупателей (только розничные товары в наличии)"""
     conn = None
     cursor = None
     try:
@@ -677,17 +516,58 @@ def buyer():
         cursor = conn.cursor()
         
         cursor.execute('''
-            SELECT id, name, sell_price, status, date_arrived 
+            SELECT id, name, sell_price, status, date_arrived, manual_price
             FROM items 
-            WHERE status IN ('в наличии', 'в пути')
-            ORDER BY 
-                CASE status 
-                    WHEN 'в наличии' THEN 1
-                    WHEN 'в пути' THEN 2
-                    ELSE 3
-                END,
-                date_arrived DESC,
-                id DESC
+            WHERE status = 'в наличии' 
+            AND is_wholesale = FALSE
+            AND (reserved_until IS NULL OR reserved_until < %s)
+            ORDER BY date_arrived DESC, id DESC
+        ''', (datetime.now().strftime('%Y-%m-%d'),))
+        
+        items = cursor.fetchall()
+        columns = [desc[0] for desc in cursor.description]
+        
+        items_list = []
+        for item_tuple in items:
+            item_dict = dict(zip(columns, item_tuple))
+            item_dict['display_price'] = item_dict.get('manual_price') or item_dict['sell_price']
+            items_list.append(item_dict)
+        
+        # Получаем активных продавцов
+        active_sellers = get_active_sellers()
+        
+        return render_template('buyer.html',
+                             items=items_list,
+                             total=len(items_list),
+                             active_sellers=active_sellers)
+                             
+    except Exception as e:
+        print(f"❌ Ошибка в buyer: {e}")
+        return render_template('buyer.html',
+                             items=[],
+                             total=0,
+                             active_sellers=[])
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+@app.route('/wholesale')
+def wholesale():
+    """Страница для оптовых покупателей (только оптовые товары)"""
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT id, name, sell_price, status, date_arrived, manual_price
+            FROM items 
+            WHERE status = 'в наличии' 
+            AND is_wholesale = TRUE
+            ORDER BY date_arrived DESC, id DESC
         ''')
         
         items = cursor.fetchall()
@@ -695,28 +575,19 @@ def buyer():
         
         items_list = []
         for item_tuple in items:
-            items_list.append(dict(zip(columns, item_tuple)))
+            item_dict = dict(zip(columns, item_tuple))
+            item_dict['display_price'] = item_dict.get('manual_price') or item_dict['sell_price']
+            items_list.append(item_dict)
         
-        in_stock = [item for item in items_list if item['status'] == 'в наличии']
-        in_transit = [item for item in items_list if item['status'] == 'в пути']
-        
-        # Получаем активных продавцов
-        active_sellers = get_active_sellers()
-        really_active_sellers = [s for s in active_sellers if s.get('is_really_active', False)]
-        
-        return render_template('buyer.html',
-                             in_stock=in_stock,
-                             in_transit=in_transit,
-                             total=len(items_list),
-                             active_sellers=really_active_sellers)
+        return render_template('wholesale.html',
+                             items=items_list,
+                             total=len(items_list))
                              
     except Exception as e:
-        print(f"❌ Ошибка в buyer: {e}")
-        return render_template('buyer.html',
-                             in_stock=[],
-                             in_transit=[],
-                             total=0,
-                             active_sellers=[])
+        print(f"❌ Ошибка в wholesale: {e}")
+        return render_template('wholesale.html',
+                             items=[],
+                             total=0)
     finally:
         if cursor:
             cursor.close()
@@ -858,18 +729,6 @@ def login_with_override():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        cursor.execute('''
-            SELECT * FROM active_sessions 
-            WHERE seller_id = %s AND is_active = TRUE
-        ''', (seller['id'],))
-        
-        old_session = cursor.fetchone()
-        
-        if old_session:
-            log_action(seller['id'], 'force_logout', 
-                      details=f'Принудительно завершена сессия')
-            print(f"🔒 Принудительно завершаем сессию для {pending_login['username']}")
-        
         cursor.execute('DELETE FROM active_sessions WHERE seller_id = %s', (seller['id'],))
         conn.commit()
         
@@ -913,7 +772,7 @@ def seller_logout():
                 conn.close()
     
     session.clear()
-    return redirect(url_for('index'))
+    return redirect(url_for('buyer'))
 
 @app.route('/seller/session_expired')
 def session_expired():
@@ -935,7 +794,6 @@ def seller_dashboard():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Проверяем валидность сессии
         cursor.execute('''
             SELECT s.username, s.display_name, a.login_time, a.last_activity
             FROM active_sessions a
@@ -949,25 +807,27 @@ def seller_dashboard():
             session.clear()
             return redirect(url_for('seller_login'))
         
-        # Обновляем время активности
         cursor.execute('''
         UPDATE active_sessions 
         SET last_activity = %s
         WHERE session_token = %s AND seller_id = %s
         ''', (datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'), session_token, seller_id))
         
-        # Получаем товары
+        # Получаем все товары
         cursor.execute('''
-            SELECT * FROM items 
+            SELECT i.*, s.shipment_number 
+            FROM items i
+            LEFT JOIN shipments s ON i.shipment_id = s.id
             ORDER BY 
-                CASE status 
+                CASE i.status 
                     WHEN 'в наличии' THEN 1
-                    WHEN 'в пути' THEN 2
-                    WHEN 'продано' THEN 3
-                    WHEN 'взял себе' THEN 4
-                    ELSE 5
+                    WHEN 'зарезервировано' THEN 2
+                    WHEN 'в пути' THEN 3
+                    WHEN 'продано' THEN 4
+                    WHEN 'взял себе' THEN 5
+                    ELSE 6
                 END,
-                id DESC
+                i.id DESC
         ''')
         
         items = cursor.fetchall()
@@ -977,32 +837,47 @@ def seller_dashboard():
         for item_tuple in items:
             items_list.append(dict(zip(columns, item_tuple)))
         
+        # Получаем все поставки
+        cursor.execute('SELECT * FROM shipments ORDER BY id DESC')
+        shipments = cursor.fetchall()
+        shipments_columns = [desc[0] for desc in cursor.description]
+        
+        shipments_list = []
+        for shipment_tuple in shipments:
+            shipments_list.append(dict(zip(shipments_columns, shipment_tuple)))
+        
         # Статистика
+        cursor.execute('SELECT COUNT(*) FROM items WHERE status = %s', ('в наличии',))
+        in_stock = cursor.fetchone()[0]
+        
+        cursor.execute('SELECT COUNT(*) FROM items WHERE status = %s', ('продано',))
+        sold = cursor.fetchone()[0]
+        
+        cursor.execute('SELECT COUNT(*) FROM items WHERE status = %s', ('в пути',))
+        in_transit = cursor.fetchone()[0]
+        
+        cursor.execute('SELECT COUNT(*) FROM items WHERE status = %s', ('зарезервировано',))
+        reserved = cursor.fetchone()[0]
+        
         stats = {
             'total': len(items_list),
-            'in_stock': len([i for i in items_list if i['status'] == 'в наличии']),
-            'sold': len([i for i in items_list if i['status'] == 'продано']),
-            'in_transit': len([i for i in items_list if i['status'] == 'в пути']),
+            'in_stock': in_stock,
+            'sold': sold,
+            'in_transit': in_transit,
+            'reserved': reserved,
             'personal': len([i for i in items_list if i['status'] == 'взял себе']),
         }
         
         conn.commit()
         
-        # Последние действия
-        recent_actions = get_recent_actions(limit=10)
-        
         # Активные продавцы
         active_sellers_list = get_active_sellers()
         
-        # Количество активных
-        active_count = len([s for s in active_sellers_list if s.get('is_really_active', False)])
-        
         return render_template('seller_dashboard.html',
                              items=items_list,
+                             shipments=shipments_list,
                              stats=stats,
-                             recent_actions=recent_actions,
                              active_sellers=active_sellers_list,
-                             active_count=active_count,
                              login_time_local=session.get('login_time_local', ''))
                              
     except Exception as e:
@@ -1015,9 +890,123 @@ def seller_dashboard():
         if conn:
             conn.close()
 
+@app.route('/seller/finance')
+def finance():
+    """Страница финансового учета"""
+    if not session.get('seller_logged_in'):
+        return redirect(url_for('seller_login'))
+    
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Получаем все транзакции
+        cursor.execute('''
+            SELECT t.*, i.name as item_name, s.shipment_number
+            FROM transactions t
+            LEFT JOIN items i ON t.item_id = i.id
+            LEFT JOIN shipments s ON t.shipment_id = s.id
+            ORDER BY t.date DESC, t.created_at DESC
+        ''')
+        
+        transactions = cursor.fetchall()
+        columns = [desc[0] for desc in cursor.description]
+        
+        transactions_list = []
+        for tx_tuple in transactions:
+            transactions_list.append(dict(zip(columns, tx_tuple)))
+        
+        # Подсчет итогов
+        cursor.execute('SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type = %s', ('sale',))
+        total_sales = cursor.fetchone()[0] or 0
+        
+        cursor.execute('SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type = %s', ('purchase',))
+        total_purchases = cursor.fetchone()[0] or 0
+        
+        cursor.execute('SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type = %s', ('delivery',))
+        total_delivery = cursor.fetchone()[0] or 0
+        
+        profit = total_sales + total_purchases + total_delivery  # purchases отрицательные
+        
+        return render_template('finance.html',
+                             transactions=transactions_list,
+                             total_sales=total_sales,
+                             total_purchases=total_purchases,
+                             total_delivery=total_delivery,
+                             profit=profit)
+                             
+    except Exception as e:
+        print(f"❌ Ошибка в finance: {e}")
+        return render_template('finance.html',
+                             transactions=[],
+                             total_sales=0,
+                             total_purchases=0,
+                             total_delivery=0,
+                             profit=0)
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+@app.route('/seller/logs')
+def view_logs():
+    """Страница просмотра логов"""
+    if not session.get('seller_logged_in'):
+        return redirect(url_for('seller_login'))
+    
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Получаем логи
+        cursor.execute('''
+            SELECT al.*, s.username, s.display_name
+            FROM action_log al
+            LEFT JOIN sellers s ON al.seller_id = s.id
+            ORDER BY al.created_at DESC
+            LIMIT 500
+        ''')
+        
+        logs = cursor.fetchall()
+        columns = [desc[0] for desc in cursor.description]
+        
+        logs_list = []
+        for log_tuple in logs:
+            log_dict = dict(zip(columns, log_tuple))
+            
+            if log_dict['created_at']:
+                try:
+                    utc_time = log_dict['created_at']
+                    if isinstance(utc_time, str):
+                        utc_time = datetime.strptime(utc_time, '%Y-%m-%d %H:%M:%S')
+                    local_time = utc_time + timedelta(hours=3)
+                    log_dict['created_at_local'] = local_time.strftime('%d.%m.%Y %H:%M:%S')
+                except:
+                    log_dict['created_at_local'] = str(log_dict['created_at'])
+            else:
+                log_dict['created_at_local'] = ''
+            
+            logs_list.append(log_dict)
+        
+        return render_template('logs.html', logs=logs_list)
+        
+    except Exception as e:
+        print(f"❌ Ошибка получения логов: {e}")
+        return render_template('logs.html', logs=[])
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
 @app.route('/seller/add', methods=['POST'])
 def add_item():
-    """Добавить товар (AJAX)"""
+    """Добавить товар"""
     if not session.get('seller_logged_in'):
         return jsonify({'error': 'Нет доступа'}), 401
     
@@ -1030,19 +1019,22 @@ def add_item():
         cursor = conn.cursor()
         
         cursor.execute('''
-        INSERT INTO items (name, cost_price, sell_price, status, date_arrived)
-        VALUES (%s, %s, %s, %s, %s) RETURNING id
+        INSERT INTO items (name, cost_price, sell_price, status, date_arrived, is_wholesale, shipment_id)
+        VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id
         ''', (
             data['name'],
             float(data['cost_price']),
             float(data['sell_price']),
             data['status'],
-            datetime.now().strftime('%Y-%m-%d')
+            datetime.now().strftime('%Y-%m-%d') if data['status'] != 'в пути' else None,
+            data.get('is_wholesale', False),
+            data.get('shipment_id')
         ))
         
         item_id = cursor.fetchone()[0]
         
-        if data['status'] != 'в пути':
+        # Если товар сразу в наличии, добавляем транзакцию покупки
+        if data['status'] == 'в наличии':
             cursor.execute('''
             INSERT INTO transactions (date, type, item_id, amount, note)
             VALUES (%s, %s, %s, %s, %s)
@@ -1056,8 +1048,8 @@ def add_item():
         
         conn.commit()
         
-        log_action(session['seller_id'], 'add_item', item_id, 
-                  f'Добавлен товар: {data["name"]}')
+        log_action(session['seller_id'], 'add_item', item_id=item_id, 
+                  details=f'Добавлен товар: {data["name"]}')
         
         return jsonify({'success': True, 'id': item_id})
         
@@ -1075,7 +1067,7 @@ def add_item():
 
 @app.route('/seller/update/<int:item_id>', methods=['POST'])
 def update_item(item_id):
-    """Обновить статус товара (AJAX)"""
+    """Обновить статус товара"""
     if not session.get('seller_logged_in'):
         return jsonify({'error': 'Нет доступа'}), 401
     
@@ -1084,6 +1076,7 @@ def update_item(item_id):
     try:
         data = request.get_json()
         new_status = data['status']
+        reserved_until = data.get('reserved_until')
         
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -1101,16 +1094,21 @@ def update_item(item_id):
         
         # Обновляем статус
         if new_status == 'продано':
-            cursor.execute('UPDATE items SET status = %s, date_sold = %s WHERE id = %s',
+            cursor.execute('UPDATE items SET status = %s, date_sold = %s, reserved_until = NULL WHERE id = %s',
                           (new_status, datetime.now().strftime('%Y-%m-%d'), item_id))
         elif new_status == 'взял себе':
-            cursor.execute('UPDATE items SET status = %s, date_taken = %s WHERE id = %s',
+            cursor.execute('UPDATE items SET status = %s, date_taken = %s, reserved_until = NULL WHERE id = %s',
                           (new_status, datetime.now().strftime('%Y-%m-%d'), item_id))
+        elif new_status == 'зарезервировано' and reserved_until:
+            cursor.execute('UPDATE items SET status = %s, reserved_until = %s WHERE id = %s',
+                          (new_status, reserved_until, item_id))
         else:
-            cursor.execute('UPDATE items SET status = %s WHERE id = %s', (new_status, item_id))
+            cursor.execute('UPDATE items SET status = %s, reserved_until = NULL WHERE id = %s', 
+                          (new_status, item_id))
         
         # Добавляем транзакцию продажи
         if old_status != 'продано' and new_status == 'продано':
+            sale_price = item.get('manual_price') or item['sell_price']
             cursor.execute('''
             INSERT INTO transactions (date, type, item_id, amount, note)
             VALUES (%s, %s, %s, %s, %s)
@@ -1118,14 +1116,30 @@ def update_item(item_id):
                 datetime.now().strftime('%Y-%m-%d'),
                 'sale',
                 item_id,
-                float(item['sell_price']),
+                float(sale_price),
                 f'Продажа {item["name"]}'
             ))
+            
+            # Увеличиваем счетчик проданных в поставке
+            if item['shipment_id']:
+                cursor.execute('''
+                UPDATE shipments 
+                SET sold_items = sold_items + 1 
+                WHERE id = %s
+                ''', (item['shipment_id'],))
+                
+                # Проверяем, все ли товары в поставке проданы
+                update_shipment_status_auto(item['shipment_id'])
+        
+        # Если меняем с "в наличии" на другой статус после того как товар был куплен
+        elif old_status == 'в наличии' and new_status != 'в наличии':
+            # Уже есть транзакция покупки, ничего не делаем
+            pass
         
         conn.commit()
         
-        log_action(session['seller_id'], 'update_item', item_id, 
-                  f'Статус изменен: {old_status} -> {new_status}')
+        log_action(session['seller_id'], 'update_item', item_id=item_id, 
+                  details=f'Статус изменен: {old_status} -> {new_status}')
         
         return jsonify({'success': True})
         
@@ -1141,320 +1155,6 @@ def update_item(item_id):
         if conn:
             conn.close()
 
-@app.route('/seller/keepalive')
-def keepalive():
-    """Поддержание активности сессии"""
-    if not session.get('seller_logged_in') or not session.get('session_token'):
-        return jsonify({'error': 'Нет доступа'}), 401
-    
-    conn = None
-    cursor = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-        UPDATE active_sessions 
-        SET last_activity = %s 
-        WHERE session_token = %s AND seller_id = %s
-        ''', (datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'), session['session_token'], session['seller_id']))
-        
-        conn.commit()
-        return jsonify({'success': True})
-        
-    except Exception as e:
-        print(f"❌ Ошибка keepalive: {e}")
-        return jsonify({'error': str(e)}), 500
-    finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
-
-@app.route('/seller/notifications')
-def get_notifications():
-    """Получить непрочитанные уведомления"""
-    if not session.get('seller_logged_in'):
-        return jsonify({'error': 'Нет доступа'}), 401
-    
-    conn = None
-    cursor = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT n.*, s.username as from_username, s.display_name as from_display_name
-            FROM notifications n
-            LEFT JOIN sellers s ON n.from_seller_id = s.id
-            WHERE n.seller_id = %s AND n.is_read = FALSE
-            ORDER BY n.created_at DESC
-            LIMIT 20
-        ''', (session['seller_id'],))
-        
-        notifications = cursor.fetchall()
-        columns = [desc[0] for desc in cursor.description]
-        
-        notifications_list = []
-        for notif_tuple in notifications:
-            notifications_list.append(dict(zip(columns, notif_tuple)))
-        
-        if notifications_list:
-            cursor.execute('UPDATE notifications SET is_read = TRUE WHERE seller_id = %s AND is_read = FALSE', 
-                          (session['seller_id'],))
-        
-        conn.commit()
-        return jsonify({'notifications': notifications_list})
-        
-    except Exception as e:
-        print(f"❌ Ошибка получения уведомлений: {e}")
-        return jsonify({'notifications': []})
-    finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
-
-@app.route('/seller/notification_count')
-def notification_count():
-    """Количество непрочитанных уведомлений"""
-    if not session.get('seller_logged_in'):
-        return jsonify({'error': 'Нет доступа'}), 401
-    
-    conn = None
-    cursor = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('SELECT COUNT(*) FROM notifications WHERE seller_id = %s AND is_read = FALSE', 
-                      (session['seller_id'],))
-        
-        count = cursor.fetchone()[0]
-        return jsonify({'count': count})
-        
-    except Exception as e:
-        print(f"❌ Ошибка подсчета уведомлений: {e}")
-        return jsonify({'count': 0})
-    finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
-
-@app.route('/seller/mark_all_read', methods=['POST'])
-def mark_all_read():
-    """Пометить все уведомления как прочитанные"""
-    if not session.get('seller_logged_in'):
-        return jsonify({'error': 'Нет доступа'}), 401
-    
-    conn = None
-    cursor = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('UPDATE notifications SET is_read = TRUE WHERE seller_id = %s', 
-                      (session['seller_id'],))
-        
-        conn.commit()
-        return jsonify({'success': True})
-        
-    except Exception as e:
-        print(f"❌ Ошибка пометки уведомлений: {e}")
-        return jsonify({'error': str(e)}), 500
-    finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
-
-@app.route('/seller/active_sellers')
-def get_active_sellers_list():
-    """Получить список активных продавцов"""
-    if not session.get('seller_logged_in'):
-        return jsonify({'error': 'Нет доступа'}), 401
-    
-    active_sellers = get_active_sellers()
-    return jsonify({'active_sellers': active_sellers})
-
-@app.route('/seller/active_sellers_count_public')
-def active_sellers_count_public():
-    """Количество активных продавцов (публичный доступ)"""
-    clear_old_sessions()
-    
-    conn = None
-    cursor = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        five_minutes_ago = (datetime.utcnow() - timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S')
-        
-        cursor.execute('''
-            SELECT COUNT(DISTINCT seller_id) as cnt
-            FROM active_sessions 
-            WHERE is_active = TRUE AND last_activity > %s
-        ''', (five_minutes_ago,))
-        
-        count = cursor.fetchone()[0]
-        return jsonify({'count': count})
-        
-    except Exception as e:
-        print(f"❌ Ошибка подсчета продавцов: {e}")
-        return jsonify({'count': 0})
-    finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
-
-@app.route('/seller/active_sellers_list_public')
-def active_sellers_list_public():
-    """Список активных продавцов (публичный доступ)"""
-    clear_old_sessions()
-    
-    conn = None
-    cursor = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        five_minutes_ago = (datetime.utcnow() - timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S')
-        
-        cursor.execute('''
-            SELECT s.username, s.display_name, a.login_time
-            FROM active_sessions a
-            JOIN sellers s ON a.seller_id = s.id
-            WHERE a.is_active = TRUE AND a.last_activity > %s
-            ORDER BY a.last_activity DESC
-            LIMIT 10
-        ''', (five_minutes_ago,))
-        
-        sellers = cursor.fetchall()
-        
-        sellers_list = []
-        for seller in sellers:
-            try:
-                login_time = seller[2]
-                if isinstance(login_time, str):
-                    utc_time = datetime.strptime(login_time, '%Y-%m-%d %H:%M:%S')
-                    local_time = utc_time + timedelta(hours=3)
-                    login_time_short = local_time.strftime('%H:%M')
-                else:
-                    login_time_short = login_time.strftime('%H:%M')
-            except:
-                login_time_short = seller[2][11:16] if seller[2] and len(str(seller[2])) > 16 else '??:??'
-            
-            sellers_list.append({
-                'username': seller[0],
-                'display_name': seller[1] or seller[0],
-                'login_time_short': login_time_short
-            })
-        
-        return jsonify({'sellers': sellers_list})
-        
-    except Exception as e:
-        print(f"❌ Ошибка списка продавцов: {e}")
-        return jsonify({'sellers': []})
-    finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
-
-@app.route('/seller/check_session')
-def check_session():
-    """Проверка валидности сессии"""
-    if not session.get('seller_logged_in') or not session.get('session_token'):
-        return jsonify({'valid': False, 'reason': 'no_session'}), 401
-    
-    seller_id = session['seller_id']
-    session_token = session['session_token']
-    
-    conn = None
-    cursor = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT 1 FROM active_sessions 
-            WHERE seller_id = %s AND session_token = %s AND is_active = TRUE
-        ''', (seller_id, session_token))
-        
-        current_session = cursor.fetchone()
-        
-        if current_session:
-            return jsonify({'valid': True})
-        else:
-            session.clear()
-            return jsonify({'valid': False, 'reason': 'session_replaced'}), 401
-            
-    except Exception as e:
-        print(f"❌ Ошибка проверки сессии: {e}")
-        return jsonify({'valid': False, 'reason': 'error'}), 500
-    finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
-
-@app.route('/buyer/active_sellers')
-def buyer_active_sellers():
-    """API для получения активных продавцов"""
-    conn = None
-    cursor = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        ten_minutes_ago = (datetime.utcnow() - timedelta(minutes=10)).strftime('%Y-%m-%d %H:%M:%S')
-        
-        cursor.execute('''
-            SELECT s.id, s.username, s.display_name, a.login_time
-            FROM active_sessions a
-            JOIN sellers s ON a.seller_id = s.id
-            WHERE a.is_active = TRUE 
-            AND a.last_activity > %s
-            ORDER BY a.last_activity DESC
-        ''', (ten_minutes_ago,))
-        
-        sellers = cursor.fetchall()
-        
-        simplified_sellers = []
-        for seller in sellers:
-            try:
-                login_time = seller[3]
-                if isinstance(login_time, str):
-                    utc_time = datetime.strptime(login_time, '%Y-%m-%d %H:%M:%S')
-                    local_time = utc_time + timedelta(hours=3)
-                    login_time_short = local_time.strftime('%H:%M')
-                else:
-                    login_time_short = login_time.strftime('%H:%M')
-            except:
-                login_time_short = seller[3][11:16] if seller[3] and len(str(seller[3])) > 16 else '??:??'
-            
-            simplified_sellers.append({
-                'id': seller[0],
-                'username': seller[1],
-                'display_name': seller[2] or seller[1],
-                'login_time_short': login_time_short
-            })
-        
-        return jsonify({'active_sellers': simplified_sellers})
-        
-    except Exception as e:
-        print(f"❌ Ошибка получения продавцов: {e}")
-        return jsonify({'active_sellers': []})
-    finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
-
-# ==================== МАРШРУТЫ ДЛЯ ПОСТАВОК (PostgreSQL версия) ====================
-
 @app.route('/seller/shipments')
 def get_shipments():
     """Получить список всех поставок"""
@@ -1467,11 +1167,7 @@ def get_shipments():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        cursor.execute('''
-            SELECT * FROM shipments 
-            ORDER BY order_date DESC, id DESC
-        ''')
-        
+        cursor.execute('SELECT * FROM shipments ORDER BY id DESC')
         shipments = cursor.fetchall()
         columns = [desc[0] for desc in cursor.description]
         
@@ -1504,7 +1200,7 @@ def create_shipment():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Получаем последний номер
+        # Генерируем номер поставки
         cursor.execute('SELECT shipment_number FROM shipments ORDER BY id DESC LIMIT 1')
         last_shipment = cursor.fetchone()
         
@@ -1517,20 +1213,20 @@ def create_shipment():
         shipment_number = f"SHIP-{new_num:03d}"
         
         cursor.execute('''
-        INSERT INTO shipments (shipment_number, order_date, delivery_cost, status)
+        INSERT INTO shipments (shipment_number, order_date, status, is_wholesale)
         VALUES (%s, %s, %s, %s) RETURNING id
         ''', (
             shipment_number,
             data['order_date'],
-            float(data['delivery_cost']),
-            data['status']
+            'в пути',
+            data.get('is_wholesale', False)
         ))
         
         shipment_id = cursor.fetchone()[0]
         
         conn.commit()
         
-        log_action(session['seller_id'], 'create_shipment', 
+        log_action(session['seller_id'], 'create_shipment', shipment_id=shipment_id,
                   details=f'Создана поставка {shipment_number}')
         
         return jsonify({
@@ -1543,8 +1239,7 @@ def create_shipment():
         print(f"❌ Ошибка создания поставки: {e}")
         if conn:
             conn.rollback()
-        log_action(session.get('seller_id'), 'error', 
-                  details=f'Ошибка создания поставки: {str(e)}')
+        log_action(session.get('seller_id'), 'error', details=f'Ошибка создания поставки: {str(e)}')
         return jsonify({'error': str(e)}), 400
     finally:
         if cursor:
@@ -1563,11 +1258,11 @@ def add_items_to_shipment(shipment_id):
     try:
         data = request.get_json()
         items = data['items']
-        status = data.get('status', 'в пути')
         
         conn = get_db_connection()
         cursor = conn.cursor()
         
+        # Получаем информацию о поставке
         cursor.execute('SELECT * FROM shipments WHERE id = %s', (shipment_id,))
         shipment_tuple = cursor.fetchone()
         
@@ -1578,19 +1273,21 @@ def add_items_to_shipment(shipment_id):
         shipment = dict(zip(columns, shipment_tuple))
         
         added_items = []
+        total_cost = 0
+        
         for item_data in items:
             cursor.execute('''
             INSERT INTO items (name, cost_price, sell_price, status, 
-                             shipment_id, date_arrived, manual_price)
+                             shipment_id, date_arrived, is_wholesale)
             VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id
             ''', (
                 item_data['name'],
                 float(item_data['cost_price']),
                 float(item_data['sell_price']),
-                status,
+                'в пути',
                 shipment_id,
-                shipment['order_date'],
-                float(item_data['sell_price'])
+                None,
+                shipment['is_wholesale']
             ))
             
             item_id = cursor.fetchone()[0]
@@ -1599,17 +1296,7 @@ def add_items_to_shipment(shipment_id):
                 'name': item_data['name']
             })
             
-            if status == 'в наличии':
-                cursor.execute('''
-                INSERT INTO transactions (date, type, item_id, amount, note)
-                VALUES (%s, %s, %s, %s, %s)
-                ''', (
-                    datetime.now().strftime('%Y-%m-%d'),
-                    'purchase',
-                    item_id,
-                    -float(item_data['cost_price']),
-                    f'Покупка {item_data["name"]}'
-                ))
+            total_cost += float(item_data['cost_price'])
         
         # Обновляем счетчик товаров
         cursor.execute('''
@@ -1620,12 +1307,13 @@ def add_items_to_shipment(shipment_id):
         
         conn.commit()
         
-        log_action(session['seller_id'], 'add_items_to_shipment', 
+        log_action(session['seller_id'], 'add_items_to_shipment', shipment_id=shipment_id,
                   details=f'Добавлено {len(items)} товаров в поставку #{shipment_id}')
         
         return jsonify({
             'success': True, 
             'added_count': len(items),
+            'total_cost': total_cost,
             'items': added_items
         })
         
@@ -1633,8 +1321,7 @@ def add_items_to_shipment(shipment_id):
         print(f"❌ Ошибка добавления товаров: {e}")
         if conn:
             conn.rollback()
-        log_action(session.get('seller_id'), 'error', 
-                  details=f'Ошибка добавления товаров: {str(e)}')
+        log_action(session.get('seller_id'), 'error', details=f'Ошибка добавления товаров: {str(e)}')
         return jsonify({'error': str(e)}), 400
     finally:
         if cursor:
@@ -1644,7 +1331,7 @@ def add_items_to_shipment(shipment_id):
 
 @app.route('/seller/shipments/<int:shipment_id>/update_status', methods=['POST'])
 def update_shipment_status(shipment_id):
-    """Обновить статус поставки"""
+    """Обновить статус поставки и стоимость доставки"""
     if not session.get('seller_logged_in'):
         return jsonify({'error': 'Нет доступа'}), 401
     
@@ -1653,55 +1340,75 @@ def update_shipment_status(shipment_id):
     try:
         data = request.get_json()
         new_status = data['status']
+        delivery_cost = float(data.get('delivery_cost', 0))
         received_date = data.get('received_date', datetime.now().strftime('%Y-%m-%d'))
         
         conn = get_db_connection()
         cursor = conn.cursor()
         
+        # Проверяем текущий статус
+        cursor.execute('SELECT status FROM shipments WHERE id = %s', (shipment_id,))
+        current_status = cursor.fetchone()
+        
+        if not current_status:
+            return jsonify({'error': 'Поставка не найдена'}), 404
+        
+        if current_status[0] == 'в наличии' and new_status == 'в пути':
+            return jsonify({'error': 'Нельзя изменить статус с "в наличии" на "в пути"'}), 400
+        
+        # Обновляем статус поставки
         cursor.execute('''
         UPDATE shipments 
-        SET status = %s, received_date = %s, updated_at = %s
+        SET status = %s, received_date = %s, delivery_cost = %s, updated_at = %s
         WHERE id = %s
-        ''', (new_status, received_date, 
+        ''', (new_status, received_date, delivery_cost,
               datetime.now().strftime('%Y-%m-%d %H:%M:%S'), shipment_id))
         
-        cursor.execute('''
-        UPDATE items 
-        SET status = %s, date_arrived = %s
-        WHERE shipment_id = %s AND status != 'продано' AND status != 'взял себе'
-        ''', (new_status, received_date, shipment_id))
-        
+        # Если меняем на "в наличии"
         if new_status == 'в наличии':
+            # Обновляем статус товаров
             cursor.execute('''
-            SELECT id, name, cost_price FROM items 
-            WHERE shipment_id = %s AND status = 'в наличии'
+            UPDATE items 
+            SET status = %s, date_arrived = %s
+            WHERE shipment_id = %s AND status = 'в пути'
+            ''', (new_status, received_date, shipment_id))
+            
+            # Получаем общую стоимость товаров в поставке
+            cursor.execute('''
+            SELECT COALESCE(SUM(cost_price), 0) FROM items 
+            WHERE shipment_id = %s
             ''', (shipment_id,))
             
-            items = cursor.fetchall()
+            total_cost = cursor.fetchone()[0] or 0
             
-            for item in items:
+            # Добавляем транзакцию покупки товаров
+            cursor.execute('''
+            INSERT INTO transactions (date, type, shipment_id, amount, note)
+            VALUES (%s, %s, %s, %s, %s)
+            ''', (
+                received_date,
+                'purchase',
+                shipment_id,
+                -float(total_cost),
+                f'Покупка товаров поставки #{shipment_id}'
+            ))
+            
+            # Добавляем транзакцию доставки
+            if delivery_cost > 0:
                 cursor.execute('''
-                SELECT tx_id FROM transactions 
-                WHERE item_id = %s AND type = 'purchase'
-                ''', (item[0],))
-                
-                existing_tx = cursor.fetchone()
-                
-                if not existing_tx:
-                    cursor.execute('''
-                    INSERT INTO transactions (date, type, item_id, amount, note)
-                    VALUES (%s, %s, %s, %s, %s)
-                    ''', (
-                        received_date,
-                        'purchase',
-                        item[0],
-                        -float(item[2]),
-                        f'Покупка {item[1]}'
-                    ))
+                INSERT INTO transactions (date, type, shipment_id, amount, note)
+                VALUES (%s, %s, %s, %s, %s)
+                ''', (
+                    received_date,
+                    'delivery',
+                    shipment_id,
+                    -float(delivery_cost),
+                    f'Доставка поставки #{shipment_id}'
+                ))
         
         conn.commit()
         
-        log_action(session['seller_id'], 'update_shipment_status', 
+        log_action(session['seller_id'], 'update_shipment_status', shipment_id=shipment_id,
                   details=f'Статус поставки #{shipment_id} изменен на "{new_status}"')
         
         return jsonify({'success': True})
@@ -1710,8 +1417,7 @@ def update_shipment_status(shipment_id):
         print(f"❌ Ошибка обновления статуса: {e}")
         if conn:
             conn.rollback()
-        log_action(session.get('seller_id'), 'error', 
-                  details=f'Ошибка обновления статуса поставки: {str(e)}')
+        log_action(session.get('seller_id'), 'error', details=f'Ошибка обновления статуса поставки: {str(e)}')
         return jsonify({'error': str(e)}), 400
     finally:
         if cursor:
@@ -1734,15 +1440,10 @@ def update_item_price(item_id):
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        cursor.execute('''
-        UPDATE items 
-        SET manual_price = %s
-        WHERE id = %s
-        ''', (new_price, item_id))
-        
+        cursor.execute('UPDATE items SET manual_price = %s WHERE id = %s', (new_price, item_id))
         conn.commit()
         
-        log_action(session['seller_id'], 'update_item_price', item_id,
+        log_action(session['seller_id'], 'update_item_price', item_id=item_id,
                   f'Цена изменена на {new_price} BYN')
         
         return jsonify({'success': True})
@@ -1751,8 +1452,7 @@ def update_item_price(item_id):
         print(f"❌ Ошибка обновления цены: {e}")
         if conn:
             conn.rollback()
-        log_action(session.get('seller_id'), 'error', 
-                  details=f'Ошибка обновления цены: {str(e)}')
+        log_action(session.get('seller_id'), 'error', details=f'Ошибка обновления цены: {str(e)}')
         return jsonify({'error': str(e)}), 400
     finally:
         if cursor:
@@ -1802,8 +1502,7 @@ def delete_item(item_id):
         print(f"❌ Ошибка удаления товара: {e}")
         if conn:
             conn.rollback()
-        log_action(session.get('seller_id'), 'error', 
-                  details=f'Ошибка удаления товара: {str(e)}')
+        log_action(session.get('seller_id'), 'error', details=f'Ошибка удаления товара: {str(e)}')
         return jsonify({'error': str(e)}), 400
     finally:
         if cursor:
@@ -1811,9 +1510,9 @@ def delete_item(item_id):
         if conn:
             conn.close()
 
-@app.route('/seller/items/shipment/<int:shipment_id>')
-def get_items_by_shipment(shipment_id):
-    """Получить товары по ID поставки"""
+@app.route('/seller/shipments/<int:shipment_id>/delete', methods=['POST'])
+def delete_shipment(shipment_id):
+    """Удалить поставку"""
     if not session.get('seller_logged_in'):
         return jsonify({'error': 'Нет доступа'}), 401
     
@@ -1823,24 +1522,92 @@ def get_items_by_shipment(shipment_id):
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        cursor.execute('''
-            SELECT * FROM items 
-            WHERE shipment_id = %s
-            ORDER BY id
-        ''', (shipment_id,))
+        # Проверяем есть ли товары в поставке
+        cursor.execute('SELECT COUNT(*) FROM items WHERE shipment_id = %s', (shipment_id,))
+        item_count = cursor.fetchone()[0]
         
-        items = cursor.fetchall()
-        columns = [desc[0] for desc in cursor.description]
+        if item_count > 0:
+            return jsonify({'error': f'Невозможно удалить поставку: в ней {item_count} товаров'}), 400
         
-        items_list = []
-        for item_tuple in items:
-            items_list.append(dict(zip(columns, item_tuple)))
+        cursor.execute('DELETE FROM shipments WHERE id = %s', (shipment_id,))
+        cursor.execute('DELETE FROM transactions WHERE shipment_id = %s', (shipment_id,))
         
-        return jsonify({'items': items_list})
+        conn.commit()
+        
+        log_action(session['seller_id'], 'delete_shipment', 
+                  details=f'Удалена поставка #{shipment_id}')
+        
+        return jsonify({'success': True})
         
     except Exception as e:
-        print(f"❌ Ошибка получения товаров поставки: {e}")
-        return jsonify({'items': []})
+        print(f"❌ Ошибка удаления поставки: {e}")
+        if conn:
+            conn.rollback()
+        log_action(session.get('seller_id'), 'error', details=f'Ошибка удаления поставки: {str(e)}')
+        return jsonify({'error': str(e)}), 400
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+@app.route('/seller/clear_logs', methods=['POST'])
+def clear_logs():
+    """Очистить логи"""
+    if not session.get('seller_logged_in'):
+        return jsonify({'error': 'Нет доступа'}), 401
+    
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('DELETE FROM action_log')
+        cursor.execute('DELETE FROM notifications')
+        
+        conn.commit()
+        
+        log_action(session['seller_id'], 'clear_logs', 
+                  details='Очищены все логи')
+        
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        print(f"❌ Ошибка очистки логов: {e}")
+        if conn:
+            conn.rollback()
+        return jsonify({'error': str(e)}), 400
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+@app.route('/seller/keepalive')
+def keepalive():
+    """Поддержание активности сессии"""
+    if not session.get('seller_logged_in') or not session.get('session_token'):
+        return jsonify({'error': 'Нет доступа'}), 401
+    
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+        UPDATE active_sessions 
+        SET last_activity = %s 
+        WHERE session_token = %s AND seller_id = %s
+        ''', (datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'), session['session_token'], session['seller_id']))
+        
+        conn.commit()
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        print(f"❌ Ошибка keepalive: {e}")
+        return jsonify({'error': str(e)}), 500
     finally:
         if cursor:
             cursor.close()
@@ -1864,9 +1631,6 @@ def truncate_filter(s, length=30):
 # ==================== ЗАПУСК СЕРВЕРА ====================
 
 if __name__ == '__main__':
-    # Очищаем старые сессии при запуске
     clear_old_sessions()
-    
-    # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
