@@ -6,15 +6,11 @@
     <title>{% block title %}Магазин{% endblock %}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <style>
         body { padding-top: 20px; background-color: #f8f9fa; }
         .navbar-brand { font-weight: bold; }
         .card { margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,.1); }
-        .status-badge { font-size: 0.8em; }
-        .in-stock { background-color: #d1e7dd; }
-        .in-transit { background-color: #fff3cd; }
-        .sold { background-color: #f8d7da; }
-        .personal { background-color: #cff4fc; }
         
         /* Стили для toast-уведомлений */
         .toast { animation: slideInRight 0.3s ease-out; }
@@ -23,121 +19,26 @@
             to { transform: translateX(0); opacity: 1; }
         }
         
-        /* Анимация для бейджа уведомлений */
-        .notification-badge {
-            animation: pulse 1.5s infinite;
-        }
-
-        @keyframes smooth-pulse {
-            0% {
-                opacity: 0.3;
-                transform: scale(0.95);
-            }
-            50% {
-                opacity: 1;
-                transform: scale(1.05);
-            }
-            100% {
-                opacity: 0.3;
-                transform: scale(0.95);
-            }
-        }
-
-        .live-pulse {
-            animation: smooth-pulse 1.5s ease-in-out infinite;
-        }
-
-        #live-dot {
-            font-size: 0.7em;
-            vertical-align: middle;
-            display: inline-block;
-        }
-        
-        /* Стили для dropdown */
-        .dropdown-menu {
-            box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
-        }
-        
-        /* Стили для активных продавцов */
-        .active-seller-item:hover {
-            background-color: #f8f9fa;
-        }
-
-        .loading-spinner {
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.5; }
-            100% { opacity: 1; }
-        }
-
-        .pulse-animation {
-            animation: pulse 2s infinite;
-        }
-
-        /* Анимация для предупреждения о сессии */
-        @keyframes session-warning {
-            0% { background-color: #fff3cd; }
-            50% { background-color: #ffeaa7; }
-            100% { background-color: #fff3cd; }
-        }
-        
-        .session-warning {
-            animation: session-warning 2s infinite;
-        }
-
         /* Стили для таблиц */
-        th[style*="cursor: pointer"]:hover {
-            background-color: #e9ecef;
-        }
-
-        .sort-asc::after {
-            content: " ▲";
-            font-size: 0.8em;
-            color: #0d6efd;
-        }
-
-        .sort-desc::after {
-            content: " ▼";
-            font-size: 0.8em;
-            color: #0d6efd;
+        .table-hover tbody tr:hover {
+            background-color: rgba(0,0,0,.075);
         }
         
-        /* Стили для модальных окон */
-        .modal-header.bg-primary,
-        .modal-header.bg-success,
-        .modal-header.bg-info,
-        .modal-header.bg-warning {
-            color: white;
-        }
+        /* Стили для статусов */
+        .status-в-наличии { background-color: #d1e7dd; }
+        .status-в-пути { background-color: #fff3cd; }
+        .status-продано { background-color: #f8d7da; }
+        .status-зарезервировано { background-color: #cfe2ff; }
+        .status-взял-себе { background-color: #cff4fc; }
         
-        /* Стили для полей ввода цен */
-        .price-input {
-            max-width: 120px;
-        }
+        /* Модальные окна */
+        .modal-xl { max-width: 1200px; }
         
-        /* Стили для карточек поставок */
-        .shipment-card {
-            transition: transform 0.2s;
-        }
-        
-        .shipment-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0,0,0,.1);
-        }
-        
-        /* Стили для текстового поля массового ввода */
-        #itemsTextArea {
-            font-family: 'Courier New', monospace;
-            font-size: 14px;
-        }
+        /* Финансовая страница */
+        .finance-card { border-left: 4px solid; }
+        .finance-income { border-left-color: #28a745; }
+        .finance-expense { border-left-color: #dc3545; }
+        .finance-profit { border-left-color: #007bff; }
     </style>
 </head>
 <body>
@@ -149,11 +50,20 @@
             
             <div class="navbar-nav">
                 <a class="nav-link" href="/buyer">
-                    <i class="fas fa-shopping-cart"></i> Покупатель
+                    <i class="fas fa-shopping-cart"></i> Розница
+                </a>
+                <a class="nav-link" href="/wholesale">
+                    <i class="fas fa-boxes"></i> Опт
                 </a>
                 {% if session.seller_logged_in %}
                     <a class="nav-link" href="/seller/dashboard">
                         <i class="fas fa-user-tie"></i> Продавец
+                    </a>
+                    <a class="nav-link" href="/seller/finance">
+                        <i class="fas fa-chart-line"></i> Финансы
+                    </a>
+                    <a class="nav-link" href="/seller/logs">
+                        <i class="fas fa-history"></i> Логи
                     </a>
                     <a class="nav-link" href="/seller/logout">
                         <i class="fas fa-sign-out-alt"></i> Выйти
@@ -178,17 +88,16 @@
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/shipments.js') }}"></script>
     {% block scripts %}{% endblock %}
     
-    <!-- АГРЕССИВНАЯ ПРОВЕРКА СЕССИИ ДЛЯ ПРОДАВЦОВ -->
+    <!-- Проверка сессии для продавцов -->
     {% if session.seller_logged_in %}
     <script>
-    // ==================== АГРЕССИВНАЯ ПРОВЕРКА СЕССИИ ====================
-    
     let sessionCheckInterval;
     let isChecking = false;
     
-    // Основная функция проверки сессии
     function checkSessionValidity() {
         if (isChecking) return;
         
@@ -204,7 +113,6 @@
         })
         .then(response => {
             if (response.status === 401 || response.status === 403) {
-                // Сессия невалидна - нас вытеснили
                 if (sessionCheckInterval) {
                     clearInterval(sessionCheckInterval);
                 }
@@ -241,15 +149,12 @@
         });
     }
     
-    // Функция для показа предупреждения об истечении сессии
     function showSessionExpiredWarning() {
-        // Удаляем старое предупреждение если есть
         const oldWarning = document.getElementById('session-expired-warning');
         if (oldWarning) {
             oldWarning.remove();
         }
         
-        // Создаем новое предупреждение
         const warningDiv = document.createElement('div');
         warningDiv.id = 'session-expired-warning';
         warningDiv.className = 'session-warning';
@@ -277,43 +182,34 @@
         document.body.prepend(warningDiv);
     }
     
-    // Инициализация проверки сессии
     function initSessionChecking() {
-        // Проверяем каждые 15 секунд
         sessionCheckInterval = setInterval(checkSessionValidity, 15000);
         
-        // Проверяем при фокусе окна
         window.addEventListener('focus', function() {
             setTimeout(checkSessionValidity, 1000);
         });
         
-        // Проверяем при видимости страницы
         document.addEventListener('visibilitychange', function() {
             if (!document.hidden) {
                 setTimeout(checkSessionValidity, 1000);
             }
         });
         
-        // Проверяем при любом клике
         document.addEventListener('click', function() {
             setTimeout(checkSessionValidity, 2000);
         });
         
-        // Проверяем при нажатии клавиш
         document.addEventListener('keydown', function() {
             setTimeout(checkSessionValidity, 2000);
         });
         
-        // Первая проверка через 2 секунды после загрузки
         setTimeout(checkSessionValidity, 2000);
     }
     
-    // Запускаем проверку при загрузке страницы
     document.addEventListener('DOMContentLoaded', function() {
         setTimeout(initSessionChecking, 1000);
     });
     
-    // Также запускаем если DOM уже загружен
     if (document.readyState === 'interactive' || document.readyState === 'complete') {
         setTimeout(initSessionChecking, 1000);
     }
