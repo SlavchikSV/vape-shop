@@ -5,290 +5,196 @@
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/shipments.js') }}"></script>
 <script>
-// Поддержание активности каждую минуту
+// Поддержание активности
 setInterval(() => {
     fetch('/seller/keepalive').catch(e => console.log('Keepalive error:', e));
 }, 60000);
 
-// Загрузка счетчика уведомлений
-function updateNotificationCount() {
-    fetch('/seller/notification_count')
-        .then(response => response.json())
-        .then(data => {
-            const badge = document.getElementById('notification-badge');
-            if (badge) {
-                badge.textContent = data.count;
-                if (data.count > 0) {
-                    badge.style.display = 'inline';
-                    badge.classList.add('notification-badge');
-                } else {
-                    badge.style.display = 'none';
-                    badge.classList.remove('notification-badge');
-                }
-            }
-        })
-        .catch(error => console.error('Ошибка загрузки счетчика:', error));
-}
-
-// Загрузка уведомлений
-function loadNotifications() {
-    fetch('/seller/notifications')
-        .then(response => response.json())
-        .then(data => {
-            if (data.notifications && data.notifications.length > 0) {
-                showToastNotifications(data.notifications);
-                updateNotificationDropdown(data.notifications);
-            }
-        })
-        .catch(error => console.error('Ошибка загрузки уведомлений:', error));
-}
-
-// Показать toast-уведомления
-function showToastNotifications(notifications) {
-    notifications.forEach(notification => {
-        const toastId = 'toast-' + notification.id;
-        const toastHTML = `
-        <div id="${toastId}" class="toast show position-fixed bottom-0 end-0 m-3" 
-             style="z-index: 1060; min-width: 300px;" role="alert" aria-live="assertive" aria-atomic="true">
-            <div class="toast-header bg-info text-white">
-                <strong class="me-auto">
-                    <i class="fas fa-bell"></i> 
-                    ${notification.from_display_name || notification.from_username || 'Система'}
-                </strong>
-                <small>${new Date(notification.created_at).toLocaleTimeString()}</small>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
-            </div>
-            <div class="toast-body">
-                ${notification.message}
-                ${notification.item_id ? `<br><small class="text-muted">ID товара: ${notification.item_id}</small>` : ''}
-            </div>
-        </div>
-        `;
-        
-        const toastContainer = document.getElementById('toast-container');
-        if (!toastContainer) {
-            const container = document.createElement('div');
-            container.id = 'toast-container';
-            container.style.position = 'fixed';
-            container.style.bottom = '20px';
-            container.style.right = '20px';
-            container.style.zIndex = '1060';
-            document.body.appendChild(container);
-        }
-        
-        document.getElementById('toast-container').insertAdjacentHTML('beforeend', toastHTML);
-        
-        setTimeout(() => {
-            const toast = document.getElementById(toastId);
-            if (toast) {
-                toast.remove();
-            }
-        }, 5000);
-    });
-}
-
-// Обновление dropdown уведомлений
-function updateNotificationDropdown(notifications) {
-    const notificationList = document.getElementById('notification-list');
-    if (!notificationList) return;
+// Функции для управления
+function showAddItemModal(shipmentId = null) {
+    const modal = new bootstrap.Modal(document.getElementById('addItemModal'));
     
-    let html = '';
-    notifications.forEach(notification => {
-        const time = new Date(notification.created_at).toLocaleTimeString();
-        html += `
-        <div class="list-group-item border-0">
-            <div class="d-flex w-100 justify-content-between">
-                <small class="mb-1">
-                    <strong>${notification.from_display_name || notification.from_username || 'Система'}</strong>
-                </small>
-                <small class="text-muted">${time}</small>
-            </div>
-            <small class="text-muted">${notification.message}</small>
-        </div>
-        <div class="dropdown-divider my-1"></div>
-        `;
-    });
+    if (shipmentId) {
+        document.getElementById('itemShipmentId').value = shipmentId;
+    } else {
+        document.getElementById('itemShipmentId').value = '';
+    }
     
-    notificationList.innerHTML = html;
+    modal.show();
 }
 
-// Пометить все как прочитанные
-function markAllAsRead() {
-    fetch('/seller/mark_all_read', {
+function addItem() {
+    const name = document.getElementById('itemName').value.trim();
+    const costPrice = parseFloat(document.getElementById('itemCostPrice').value);
+    const sellPrice = parseFloat(document.getElementById('itemSellPrice').value);
+    const status = document.getElementById('itemStatus').value;
+    const shipmentId = document.getElementById('itemShipmentId').value || null;
+    const isWholesale = document.getElementById('itemIsWholesale').checked;
+    
+    if (!name) {
+        showToast('Введите название товара', 'warning');
+        return;
+    }
+    
+    if (isNaN(costPrice) || costPrice < 0) {
+        showToast('Укажите корректную себестоимость', 'warning');
+        return;
+    }
+    
+    if (isNaN(sellPrice) || sellPrice < 0) {
+        showToast('Укажите корректную цену продажи', 'warning');
+        return;
+    }
+    
+    fetch('/seller/add', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            name: name,
+            cost_price: costPrice,
+            sell_price: sellPrice,
+            status: status,
+            shipment_id: shipmentId,
+            is_wholesale: isWholesale
+        })
     })
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            updateNotificationCount();
-            const notificationList = document.getElementById('notification-list');
-            if (notificationList) {
-                notificationList.innerHTML = `
-                <div class="text-center text-muted py-3">
-                    <i class="fas fa-bell-slash"></i><br>
-                    Нет новых уведомлений
-                </div>`;
-            }
+            showToast('Товар добавлен!', 'success');
+            bootstrap.Modal.getInstance(document.getElementById('addItemModal')).hide();
+            location.reload();
+        } else {
+            showToast('Ошибка: ' + data.error, 'danger');
         }
-    });
+    })
+    .catch(error => showToast('Ошибка сети: ' + error, 'danger'));
 }
 
-// Обновление счетчика активных продавцов
-function updateActiveSellersCount() {
-    fetch('/seller/active_sellers')
-        .then(response => response.json())
-        .then(data => {
-            if (data.active_sellers) {
-                const activeCount = data.active_sellers.filter(s => s.status === 'active').length;
-                const countElement = document.getElementById('active-sellers-count');
-                if (countElement) {
-                    countElement.textContent = activeCount;
-                }
-                
-                updateActiveSellersList(data.active_sellers);
-            }
-        })
-        .catch(error => console.error('Ошибка загрузки активных продавцов:', error));
-}
-
-// Обновление списка активных продавцов
-function updateActiveSellersList(sellers) {
-    const container = document.getElementById('active-sellers-list');
-    if (!container) return;
+function updateItemStatus(itemId, currentStatus) {
+    const modal = new bootstrap.Modal(document.getElementById('updateStatusModal'));
+    document.getElementById('updateItemId').value = itemId;
+    document.getElementById('updateStatus').value = currentStatus;
     
-    if (!sellers || sellers.length === 0) {
-        container.innerHTML = '<div class="list-group-item text-center text-muted py-3">' +
-                              '<i class="fas fa-user-slash"></i><br>Нет активных продавцов</div>';
-        return;
-    }
+    // Показать/скрыть поле даты резерва
+    const reserveGroup = document.getElementById('reserveGroup');
+    reserveGroup.style.display = 'none';
     
-    let html = '';
-    sellers.forEach(seller => {
-        html += `
-        <div class="list-group-item">
-            <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <strong>${seller.display_name || seller.username}</strong><br>
-                    <small class="text-muted">Вошел: ${seller.login_time_local}</small>
-                </div>
-                <span class="badge bg-${seller.status_class}">${seller.status_text}</span>
-            </div>
-        </div>
-        `;
+    document.getElementById('updateStatus').addEventListener('change', function() {
+        reserveGroup.style.display = this.value === 'зарезервировано' ? 'block' : 'none';
     });
     
-    container.innerHTML = html;
+    modal.show();
 }
 
-// Изменение статуса товара
-function updateStatus(itemId, currentStatus) {
-    const newStatus = prompt('Новый статус:', currentStatus);
-    if (!newStatus || newStatus === currentStatus) return;
+function confirmUpdateStatus() {
+    const itemId = document.getElementById('updateItemId').value;
+    const newStatus = document.getElementById('updateStatus').value;
+    const reservedUntil = document.getElementById('reservedUntil').value;
     
     fetch('/seller/update/' + itemId, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({status: newStatus})
+        body: JSON.stringify({
+            status: newStatus,
+            reserved_until: reservedUntil
+        })
     })
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            alert('Статус обновлён!');
+            showToast('Статус обновлён!', 'success');
+            bootstrap.Modal.getInstance(document.getElementById('updateStatusModal')).hide();
             location.reload();
         } else {
-            alert('Ошибка: ' + data.error);
+            showToast('Ошибка: ' + data.error, 'danger');
         }
     })
-    .catch(error => alert('Ошибка сети: ' + error));
+    .catch(error => showToast('Ошибка сети: ' + error, 'danger'));
 }
 
-// Сортировка таблицы
-function sortTable(columnIndex, sortType = 'string') {
-    const table = document.querySelector('.table');
-    const tbody = table.querySelector('tbody');
-    const rows = Array.from(tbody.querySelectorAll('tr'));
-    const header = table.querySelectorAll('th')[columnIndex];
+function deleteItem(itemId, itemName) {
+    if (!confirm(`Удалить товар "${itemName}"?`)) return;
     
-    // Определяем направление сортировки
-    const isAscending = !header.classList.contains('sort-asc');
-    
-    // Сбрасываем сортировку на других заголовках
-    table.querySelectorAll('th').forEach(th => {
-        th.classList.remove('sort-asc', 'sort-desc');
-    });
-    
-    // Устанавливаем направление сортировки
-    header.classList.add(isAscending ? 'sort-asc' : 'sort-desc');
-    
-    // Сортируем строки
-    rows.sort((a, b) => {
-        const aCell = a.cells[columnIndex];
-        const bCell = b.cells[columnIndex];
-        
-        let aValue = aCell.textContent.trim();
-        let bValue = bCell.textContent.trim();
-        
-        // Преобразуем значения для числовой сортировки
-        if (sortType === 'number') {
-            aValue = parseFloat(aValue) || 0;
-            bValue = parseFloat(bCell.textContent.trim()) || 0;
-        } else if (sortType === 'date') {
-            // Для даты пытаемся распарсить
-            aValue = new Date(aValue.split(': ')[1] || aValue);
-            bValue = new Date(bValue.split(': ')[1] || bValue);
+    fetch('/seller/items/' + itemId + '/delete', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showToast('Товар удален', 'success');
+            location.reload();
+        } else {
+            showToast('Ошибка: ' + data.error, 'danger');
         }
-        
-        // Сравниваем
-        if (aValue < bValue) return isAscending ? -1 : 1;
-        if (aValue > bValue) return isAscending ? 1 : -1;
-        return 0;
-    });
-    
-    // Перезаписываем строки в новом порядке
-    rows.forEach(row => tbody.appendChild(row));
+    })
+    .catch(error => showToast('Ошибка сети: ' + error, 'danger'));
 }
 
-// Инициализация после загрузки страницы
+function deleteShipment(shipmentId, shipmentNumber) {
+    if (!confirm(`Удалить поставку "${shipmentNumber}"?`)) return;
+    
+    fetch('/seller/shipments/' + shipmentId + '/delete', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showToast('Поставка удалена', 'success');
+            location.reload();
+        } else {
+            showToast('Ошибка: ' + data.error, 'danger');
+        }
+    })
+    .catch(error => showToast('Ошибка сети: ' + error, 'danger'));
+}
+
+// Вспомогательные функции
+function showToast(message, type = 'info') {
+    const toastId = 'toast-' + Date.now();
+    const toastHTML = `
+    <div id="${toastId}" class="toast show" role="alert" style="position: fixed; top: 20px; right: 20px; z-index: 1060;">
+        <div class="toast-header bg-${type} text-white">
+            <strong class="me-auto">
+                ${type === 'success' ? '<i class="fas fa-check-circle"></i>' : 
+                  type === 'warning' ? '<i class="fas fa-exclamation-triangle"></i>' : 
+                  type === 'danger' ? '<i class="fas fa-times-circle"></i>' : 
+                  '<i class="fas fa-info-circle"></i>'}
+                ${type === 'success' ? 'Успешно' : 
+                  type === 'warning' ? 'Внимание' : 
+                  type === 'danger' ? 'Ошибка' : 'Информация'}
+            </strong>
+            <button type="button" class="btn-close btn-close-white" onclick="document.getElementById('${toastId}').remove()"></button>
+        </div>
+        <div class="toast-body">
+            ${message}
+        </div>
+    </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', toastHTML);
+    
+    setTimeout(() => {
+        const toast = document.getElementById(toastId);
+        if (toast) toast.remove();
+    }, 3000);
+}
+
+// Инициализация
 document.addEventListener('DOMContentLoaded', function() {
-    updateNotificationCount();
-    loadNotifications();
-    updateActiveSellersCount();
-    
-    setInterval(updateNotificationCount, 10000);
-    setInterval(loadNotifications, 10000);
-    setInterval(updateActiveSellersCount, 15000);
-    
-    // Инициализация сортировки таблицы
-    const table = document.querySelector('.table');
-    if (table) {
-        const headers = table.querySelectorAll('th');
-        headers.forEach((header, index) => {
-            let sortType = 'string';
-            if (index === 0 || index === 3 || index === 4) sortType = 'number'; // ID, себестоимость, цена
-            if (index === 6) sortType = 'date'; // Дата
-            
-            header.style.cursor = 'pointer';
-            header.title = 'Нажмите для сортировки';
-            
-            header.addEventListener('click', () => {
-                sortTable(index, sortType);
-            });
-        });
-    }
-    
-    // Инициализация кнопок управления поставками
+    // Обработчики для поставок
     const shipmentButtons = [
         'add-shipment-btn',
         'load-shipments-btn',
-        'delete-mode-btn',
+        'add-item-btn',
         'add-single-item-btn'
     ];
     
     shipmentButtons.forEach(btnId => {
         const btn = document.getElementById(btnId);
         if (btn) {
-            // Удаляем старые обработчики и добавляем новые
             btn.onclick = null;
         }
     });
@@ -310,67 +216,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 <i class="fas fa-clock"></i> Время входа: {{ login_time_local }}
             </span>
         </div>
-        <div class="d-flex gap-2 align-items-center">
-            <!-- Уведомления -->
-            <div class="dropdown" id="notification-dropdown">
-                <button class="btn btn-outline-primary dropdown-toggle" type="button" 
-                        data-bs-toggle="dropdown" aria-expanded="false">
-                    <i class="fas fa-bell"></i>
-                    <span class="badge bg-danger" id="notification-badge" style="display: none;">0</span>
-                </button>
-                <div class="dropdown-menu dropdown-menu-end p-0" style="min-width: 300px;">
-                    <div class="dropdown-header bg-light d-flex justify-content-between">
-                        <strong>Уведомления</strong>
-                        <button class="btn btn-sm btn-link p-0" onclick="markAllAsRead()">
-                            Прочитать все
-                        </button>
-                    </div>
-                    <div id="notification-list" class="p-2" style="max-height: 300px; overflow-y: auto;">
-                        <div class="text-center text-muted py-3">
-                            <i class="fas fa-bell-slash"></i><br>
-                            Нет новых уведомлений
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Активные продавцы -->
-            <div class="dropdown">
-                <button class="btn btn-outline-success dropdown-toggle" type="button" 
-                        data-bs-toggle="dropdown" aria-expanded="false">
-                    <i class="fas fa-users"></i>
-                    <span class="badge bg-success" id="active-sellers-count">{{ active_count }}</span>
-                </button>
-                <div class="dropdown-menu dropdown-menu-end p-0" style="min-width: 300px;">
-                    <div class="dropdown-header bg-light">
-                        <strong>Активные продавцы</strong>
-                        <small class="text-muted">Сейчас онлайн: {{ active_count }}</small>
-                    </div>
-                    <div class="list-group list-group-flush" id="active-sellers-list" style="max-height: 300px; overflow-y: auto;">
-                        {% if active_sellers %}
-                            {% for seller in active_sellers %}
-                            <div class="list-group-item">
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <div>
-                                        <strong>{{ seller.display_name or seller.username }}</strong><br>
-                                        <small class="text-muted">Вошел: {{ seller.login_time_local }}</small>
-                                    </div>
-                                    <span class="badge bg-{{ seller.status_class }}">{{ seller.status_text }}</span>
-                                </div>
-                            </div>
-                            {% endfor %}
-                        {% else %}
-                            <div class="list-group-item text-center text-muted py-3">
-                                <i class="fas fa-user-slash"></i><br>
-                                Нет активных продавцов
-                            </div>
-                        {% endif %}
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Выход -->
-            <a href="/seller/logout" class="btn btn-danger">
+        <div>
+            <a href="/seller/logout" class="btn btn-danger btn-sm">
                 <i class="fas fa-sign-out-alt"></i> Выйти
             </a>
         </div>
@@ -378,77 +225,83 @@ document.addEventListener('DOMContentLoaded', function() {
     
     <!-- Статистика -->
     <div class="row mb-4">
-        <div class="col-md-3">
+        <div class="col-md-2">
             <div class="card text-white bg-primary">
-                <div class="card-body">
-                    <h5 class="card-title">Всего товаров</h5>
+                <div class="card-body text-center">
+                    <h5 class="card-title">Всего</h5>
                     <h2>{{ stats.total }}</h2>
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col-md-2">
             <div class="card text-white bg-success">
-                <div class="card-body">
+                <div class="card-body text-center">
                     <h5 class="card-title">В наличии</h5>
                     <h2>{{ stats.in_stock }}</h2>
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="card text-white bg-danger">
-                <div class="card-body">
-                    <h5 class="card-title">Продано</h5>
-                    <h2>{{ stats.sold }}</h2>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
+        <div class="col-md-2">
             <div class="card text-white bg-warning">
-                <div class="card-body">
+                <div class="card-body text-center">
                     <h5 class="card-title">В пути</h5>
                     <h2>{{ stats.in_transit }}</h2>
                 </div>
             </div>
         </div>
+        <div class="col-md-2">
+            <div class="card text-white bg-info">
+                <div class="card-body text-center">
+                    <h5 class="card-title">Зарезервировано</h5>
+                    <h2>{{ stats.reserved }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="card text-white bg-danger">
+                <div class="card-body text-center">
+                    <h5 class="card-title">Продано</h5>
+                    <h2>{{ stats.sold }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="card text-white bg-secondary">
+                <div class="card-body text-center">
+                    <h5 class="card-title">Личное</h5>
+                    <h2>{{ stats.personal }}</h2>
+                </div>
+            </div>
+        </div>
     </div>
     
-    <!-- Управление товарами и поставками -->
+    <!-- Управление -->
     <div class="card mb-4">
         <div class="card-header bg-dark text-white">
-            <h4 class="mb-0"><i class="fas fa-cogs"></i> Управление товарами и поставками</h4>
+            <h4 class="mb-0"><i class="fas fa-cogs"></i> Управление</h4>
         </div>
         <div class="card-body">
             <div class="d-flex flex-wrap gap-2 mb-3">
-                <button class="btn btn-primary" id="add-shipment-btn">
-                    <i class="fas fa-truck-loading"></i> Добавить поставку
+                <button class="btn btn-primary" id="add-shipment-btn" onclick="showAddShipmentModal()">
+                    <i class="fas fa-truck-loading"></i> Новая поставка
                 </button>
                 
-                <button class="btn btn-info" id="load-shipments-btn">
+                <button class="btn btn-info" id="load-shipments-btn" onclick="loadShipments()">
                     <i class="fas fa-list"></i> Показать поставки
                 </button>
                 
-                <button class="btn btn-success" id="add-single-item-btn">
-                    <i class="fas fa-plus-circle"></i> Добавить отдельный товар
-                </button>
-                
-                <button class="btn btn-danger" id="delete-mode-btn">
-                    <i class="fas fa-trash"></i> Режим удаления (тест)
+                <button class="btn btn-success" id="add-item-btn" onclick="showAddItemModal()">
+                    <i class="fas fa-plus-circle"></i> Добавить товар
                 </button>
                 
                 <button class="btn btn-secondary" onclick="location.reload()">
-                    <i class="fas fa-sync"></i> Обновить страницу
+                    <i class="fas fa-sync"></i> Обновить
                 </button>
-            </div>
-            
-            <div class="alert alert-warning">
-                <i class="fas fa-exclamation-triangle"></i>
-                <strong>Поставки:</strong> Создавайте поставки, добавляйте в них товары партиями.
-                При изменении статуса поставки все товары в ней автоматически обновят свой статус.
             </div>
         </div>
     </div>
     
-    <!-- Секция для отображения поставок -->
+    <!-- Поставки -->
     <div id="shipments-section" class="card mb-4" style="display: none;">
         <div class="card-header bg-info text-white">
             <h5 class="mb-0"><i class="fas fa-truck"></i> Управление поставками</h5>
@@ -458,10 +311,10 @@ document.addEventListener('DOMContentLoaded', function() {
         </div>
     </div>
     
-    <!-- Список товаров -->
+    <!-- Товары -->
     <div class="card">
         <div class="card-header">
-            <h4 class="mb-0"><i class="fas fa-boxes"></i> Все товары ({{ items|length }})</h4>
+            <h4 class="mb-0"><i class="fas fa-boxes"></i> Все товары</h4>
         </div>
         <div class="card-body">
             {% if items %}
@@ -475,30 +328,30 @@ document.addEventListener('DOMContentLoaded', function() {
                             <th>Себест.</th>
                             <th>Цена</th>
                             <th>Статус</th>
-                            <th>Дата</th>
+                            <th>Опт</th>
                             <th>Действия</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for item in items %}
-                        <tr class="{% if item.status == 'в наличии' %}table-success{% elif item.status == 'в пути' %}table-warning{% elif item.status == 'продано' %}table-danger{% elif item.status == 'взял себе' %}table-info{% endif %}">
+                        <tr class="status-{{ item.status|replace(' ', '-')|lower }}">
                             <td>{{ item.id }}</td>
                             <td>{{ item.name }}</td>
                             <td>
-                                {% if item.shipment_id %}
-                                <span class="badge bg-secondary">SHIP-{{ "%03d"|format(item.shipment_id) }}</span>
+                                {% if item.shipment_number %}
+                                <span class="badge bg-secondary">{{ item.shipment_number }}</span>
                                 {% else %}
                                 <span class="text-muted">—</span>
                                 {% endif %}
                             </td>
-                            <td>{{ item.cost_price }} BYN</td>
+                            <td>{{ "%.2f"|format(item.cost_price) }} BYN</td>
                             <td>
                                 <strong>
                                     {% if item.manual_price and item.manual_price != item.sell_price %}
-                                    <span class="text-primary" title="Ручная цена">{{ item.manual_price }}</span>
-                                    <small class="text-muted"><s>{{ item.sell_price }}</s></small>
+                                    <span class="text-primary">{{ "%.2f"|format(item.manual_price) }}</span>
+                                    <small class="text-muted"><s>{{ "%.2f"|format(item.sell_price) }}</s></small>
                                     {% else %}
-                                    {{ item.sell_price }}
+                                    {{ "%.2f"|format(item.sell_price) }}
                                     {% endif %}
                                 BYN</strong>
                             </td>
@@ -507,31 +360,33 @@ document.addEventListener('DOMContentLoaded', function() {
                                     {% if item.status == 'в наличии' %}bg-success
                                     {% elif item.status == 'в пути' %}bg-warning
                                     {% elif item.status == 'продано' %}bg-danger
-                                    {% elif item.status == 'взял себе' %}bg-info
-                                    {% else %}bg-secondary{% endif %}">
+                                    {% elif item.status == 'зарезервировано' %}bg-info
+                                    {% elif item.status == 'взял себе' %}bg-secondary
+                                    {% else %}bg-dark{% endif %}">
                                     {{ item.status }}
+                                    {% if item.status == 'зарезервировано' and item.reserved_until %}
+                                    <br><small>до {{ item.reserved_until }}</small>
+                                    {% endif %}
                                 </span>
                             </td>
                             <td>
-                                <small>
-                                    {% if item.status == 'в наличии' %}
-                                        Поступ.: {{ item.date_arrived[:10] if item.date_arrived else '—' }}
-                                    {% elif item.status == 'продано' %}
-                                        Продажа: {{ item.date_sold[:10] if item.date_sold else '—' }}
-                                    {% elif item.status == 'взял себе' %}
-                                        Взято: {{ item.date_taken[:10] if item.date_taken else '—' }}
-                                    {% else %}
-                                        —
-                                    {% endif %}
-                                </small>
+                                {% if item.is_wholesale %}
+                                <span class="badge bg-dark">Опт</span>
+                                {% else %}
+                                <span class="badge bg-light text-dark">Розница</span>
+                                {% endif %}
                             </td>
                             <td>
-                                <button class="btn btn-sm btn-outline-primary update-btn" 
-                                        data-id="{{ item.id }}" 
-                                        data-status="{{ item.status }}"
-                                        onclick="updateStatus({{ item.id }}, '{{ item.status }}')">
-                                    <i class="fas fa-edit"></i> Статус
-                                </button>
+                                <div class="btn-group btn-group-sm">
+                                    <button class="btn btn-outline-primary" 
+                                            onclick="updateItemStatus({{ item.id }}, '{{ item.status }}')">
+                                        <i class="fas fa-edit"></i>
+                                    </button>
+                                    <button class="btn btn-outline-danger" 
+                                            onclick="deleteItem({{ item.id }}, '{{ item.name }}')">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
                             </td>
                         </tr>
                         {% endfor %}
@@ -541,41 +396,128 @@ document.addEventListener('DOMContentLoaded', function() {
             {% else %}
             <div class="alert alert-warning text-center">
                 <h5><i class="fas fa-box-open"></i> Нет товаров</h5>
-                <p>Добавьте первый товар, нажав кнопку выше.</p>
+                <p>Добавьте первый товар.</p>
             </div>
             {% endif %}
         </div>
     </div>
     
-    <!-- Лента действий -->
-    {% if recent_actions %}
+    <!-- Поставки (все) -->
+    {% if shipments %}
     <div class="card mt-4">
         <div class="card-header bg-secondary text-white">
-            <h5 class="mb-0"><i class="fas fa-history"></i> Последние действия всех продавцов</h5>
+            <h5 class="mb-0"><i class="fas fa-truck"></i> Все поставки</h5>
         </div>
         <div class="card-body">
-            <div class="list-group list-group-flush">
-                {% for action in recent_actions %}
-                <div class="list-group-item">
-                    <small>
-                        <span class="text-muted">{{ action.created_at_local }}</span>
-                        <strong>{{ action.display_name or action.username }}</strong>
-                        {{ action.action_type }}
-                        {% if action.details %}
-                        <span class="text-muted">({{ action.details[:50] }}{% if action.details|length > 50 %}...{% endif %})</span>
-                        {% endif %}
-                        {% if action.item_id %}
-                        <span class="badge bg-secondary">ID: {{ action.item_id }}</span>
-                        {% endif %}
-                    </small>
-                </div>
-                {% endfor %}
+            <div class="table-responsive">
+                <table class="table table-sm table-hover">
+                    <thead>
+                        <tr>
+                            <th>Номер</th>
+                            <th>Дата заказа</th>
+                            <th>Статус</th>
+                            <th>Товары</th>
+                            <th>Продано</th>
+                            <th>Доставка</th>
+                            <th>Опт</th>
+                            <th>Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for shipment in shipments %}
+                        <tr class="{% if shipment.status == 'в наличии' %}table-success{% elif shipment.status == 'в пути' %}table-warning{% elif shipment.status == 'продано' %}table-danger{% endif %}">
+                            <td>
+                                <strong>{{ shipment.shipment_number }}</strong>
+                                {% if shipment.received_date %}
+                                <br><small>Получено: {{ shipment.received_date }}</small>
+                                {% endif %}
+                            </td>
+                            <td>{{ shipment.order_date }}</td>
+                            <td>
+                                <span class="badge bg-{% if shipment.status == 'в наличии' %}success{% elif shipment.status == 'в пути' %}warning{% elif shipment.status == 'продано' %}danger{% else %}secondary{% endif %}">
+                                    {{ shipment.status }}
+                                </span>
+                            </td>
+                            <td>
+                                {{ shipment.total_items }} / {{ shipment.sold_items }}
+                            </td>
+                            <td>
+                                {{ shipment.sold_items }}
+                            </td>
+                            <td>
+                                {% if shipment.delivery_cost %}
+                                {{ "%.2f"|format(shipment.delivery_cost) }} BYN
+                                {% else %}
+                                <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if shipment.is_wholesale %}
+                                <span class="badge bg-dark">Да</span>
+                                {% else %}
+                                <span class="badge bg-light text-dark">Нет</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <div class="btn-group btn-group-sm">
+                                    <button class="btn btn-outline-info btn-sm" 
+                                            onclick="showShipmentItems({{ shipment.id }}, '{{ shipment.shipment_number }}')">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                    <button class="btn btn-outline-danger btn-sm" 
+                                            onclick="deleteShipment({{ shipment.id }}, '{{ shipment.shipment_number }}')">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
     {% endif %}
+    
 </div>
 
-<!-- Включаем модальные окна -->
+<!-- Модальные окна -->
 {% include 'modals.html' %}
+{% include 'add_item_modal.html' %}
+
+<!-- Модальное окно изменения статуса -->
+<div class="modal fade" id="updateStatusModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-warning">
+                <h5 class="modal-title"><i class="fas fa-sync"></i> Изменить статус</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="updateItemId">
+                <div class="mb-3">
+                    <label class="form-label">Новый статус:</label>
+                    <select class="form-control" id="updateStatus">
+                        <option value="в наличии">в наличии</option>
+                        <option value="зарезервировано">зарезервировано</option>
+                        <option value="продано">продано</option>
+                        <option value="взял себе">взял себе</option>
+                        <option value="в пути">в пути</option>
+                    </select>
+                </div>
+                <div class="mb-3" id="reserveGroup" style="display: none;">
+                    <label class="form-label">Зарезервировано до:</label>
+                    <input type="date" class="form-control" id="reservedUntil" 
+                           value="{{ now.strftime('%Y-%m-%d') }}">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-warning" onclick="confirmUpdateStatus()">
+                    <i class="fas fa-check"></i> Обновить
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
