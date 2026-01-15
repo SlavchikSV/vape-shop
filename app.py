@@ -1763,52 +1763,37 @@ def add_items_to_shipment(shipment_id):
     conn = None
     cursor = None
     try:
-        # Проверяем Content-Type
-        if not request.is_json:
-            return jsonify({'error': 'Content-Type должен быть application/json'}), 400
-            
         data = request.get_json()
-        
-        # Проверяем обязательные поля
-        if not data or 'items' not in data:
-            return jsonify({'error': 'Не указаны товары'}), 400
-            
         items = data['items']
         status = data.get('status', 'в пути')
-        
-        if not isinstance(items, list) or len(items) == 0:
-            return jsonify({'error': 'Товары должны быть списком'}), 400
         
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Проверяем существование поставки
-        cursor.execute('SELECT id, status FROM shipments WHERE id = %s', (shipment_id,))
+        cursor.execute('SELECT * FROM shipments WHERE id = %s', (shipment_id,))
         shipment_tuple = cursor.fetchone()
         
         if not shipment_tuple:
             return jsonify({'error': 'Поставка не найдена'}), 404
         
-        # Вставляем товары
+        columns = [desc[0] for desc in cursor.description]
+        shipment = dict(zip(columns, shipment_tuple))
+        
         added_items = []
         for item_data in items:
-            # Проверяем обязательные поля товара
-            if 'name' not in item_data or not item_data['name']:
-                continue
-                
-            cost_price = float(item_data.get('cost_price', 0))
-            sell_price = float(item_data.get('sell_price', 0))
-            
             cursor.execute('''
-            INSERT INTO items (name, cost_price, sell_price, status, shipment_id, date_arrived)
-            VALUES (%s, %s, %s, %s, %s, %s) RETURNING id
+            INSERT INTO items (name, cost_price, sell_price, image_url, status, 
+                             shipment_id, date_arrived, manual_price)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
             ''', (
-                item_data['name'].strip(),
-                cost_price,
-                sell_price,
+                item_data['name'],
+                float(item_data['cost_price']),
+                float(item_data['sell_price']),
+                item_data.get('image_url', ''),
                 status,
                 shipment_id,
-                datetime.now().strftime('%Y-%m-%d')
+                shipment['order_date'],
+                float(item_data['sell_price'])
             ))
             
             item_id = cursor.fetchone()[0]
@@ -1816,22 +1801,34 @@ def add_items_to_shipment(shipment_id):
                 'id': item_id,
                 'name': item_data['name']
             })
+            
+            if status == 'в наличии':
+                cursor.execute('''
+                INSERT INTO transactions (date, type, item_id, amount, note)
+                VALUES (%s, %s, %s, %s, %s)
+                ''', (
+                    datetime.now().strftime('%Y-%m-%d'),
+                    'purchase',
+                    item_id,
+                    -float(item_data['cost_price']),
+                    f'Покупка {item_data["name"]}'
+                ))
         
-        # Обновляем счетчик товаров в поставке
+        # Обновляем счетчик товаров
         cursor.execute('''
         UPDATE shipments 
         SET total_items = total_items + %s, updated_at = %s
         WHERE id = %s
-        ''', (len(added_items), datetime.now().strftime('%Y-%m-%d %H:%M:%S'), shipment_id))
+        ''', (len(items), datetime.now().strftime('%Y-%m-%d %H:%M:%S'), shipment_id))
         
         conn.commit()
         
         log_action(session['seller_id'], 'add_items_to_shipment', 
-                  details=f'Добавлено {len(added_items)} товаров в поставку #{shipment_id}')
+                  details=f'Добавлено {len(items)} товаров в поставку #{shipment_id}')
         
         return jsonify({
             'success': True, 
-            'added_count': len(added_items),
+            'added_count': len(items),
             'items': added_items
         })
         
@@ -1839,6 +1836,8 @@ def add_items_to_shipment(shipment_id):
         print(f"❌ Ошибка добавления товаров: {e}")
         if conn:
             conn.rollback()
+        log_action(session.get('seller_id'), 'error', 
+                  details=f'Ошибка добавления товаров: {str(e)}')
         return jsonify({'error': str(e)}), 400
     finally:
         if cursor:
@@ -2171,6 +2170,7 @@ if __name__ == '__main__':
     # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
 
 
 
