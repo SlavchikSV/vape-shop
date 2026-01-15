@@ -13,16 +13,10 @@ function showAddShipmentModal() {
 // Создать поставку
 function createShipment() {
     const orderDate = document.getElementById('shipmentOrderDate').value;
-    const deliveryCost = parseFloat(document.getElementById('shipmentDeliveryCost').value);
-    const status = document.getElementById('shipmentStatus').value;
+    const status = 'в пути'; // Все новые поставки по умолчанию "в пути"
     
     if (!orderDate) {
         showToast('Укажите дату заказа', 'warning');
-        return;
-    }
-    
-    if (isNaN(deliveryCost) || deliveryCost < 0) {
-        showToast('Укажите корректную стоимость доставки', 'warning');
         return;
     }
     
@@ -33,7 +27,6 @@ function createShipment() {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
             order_date: orderDate,
-            delivery_cost: deliveryCost,
             status: status
         })
     })
