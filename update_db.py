@@ -74,6 +74,7 @@ def update_database():
             default_sellers = [
                 ('SlavchikSV', 'sv280606', 'Администратор', 'admin'),
                 ('mkozlov', '020988mama', 'Главный администратор', 'admin'),
+                ('g_nix', 'IHHujhg655G', 'Продавец', 'seller'),
             ]
             
             for username, password, display, role in default_sellers:
