@@ -16,28 +16,9 @@
                                value="{{ now.strftime('%Y-%m-%d') }}" required>
                     </div>
                     
-                    <div class="mb-3">
-                        <label class="form-label">Стоимость доставки (BYN):</label>
-                        <div class="input-group">
-                            <input type="number" class="form-control" id="shipmentDeliveryCost" 
-                                   value="10" step="0.01" min="0" required>
-                            <span class="input-group-text">BYN</span>
-                        </div>
-                        <small class="form-text text-muted">
-                            Эта сумма распределяется на все товары в поставке
-                        </small>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Начальный статус:</label>
-                        <select class="form-control" id="shipmentStatus">
-                            <option value="в пути" selected>в пути</option>
-                            <option value="в наличии">в наличии</option>
-                        </select>
-                    </div>
-                    
                     <div class="alert alert-info">
                         <i class="fas fa-info-circle"></i>
+                        <strong>Важно:</strong> Стоимость доставки указывается при получении поставки<br>
                         <strong>Номер поставки будет сгенерирован автоматически</strong><br>
                         Формат: SHIP-001, SHIP-002 и т.д.
                     </div>
