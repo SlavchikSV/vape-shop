@@ -62,6 +62,7 @@ def init_db():
             cost_price DECIMAL(10,2) NOT NULL,
             sell_price DECIMAL(10,2) NOT NULL,
             manual_price DECIMAL(10,2),
+            image_url TEXT,
             status TEXT NOT NULL DEFAULT 'в наличии',
             shipment_id INTEGER,
             date_arrived TEXT,
@@ -2169,6 +2170,7 @@ if __name__ == '__main__':
     # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
 
 
 
