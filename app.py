@@ -1221,6 +1221,23 @@ def get_notifications():
         if conn:
             conn.close()
 
+# Добавляем в app.py функцию для получения статусов товаров
+@app.route('/seller/item_statuses')
+def get_item_statuses():
+    """Получить список доступных статусов для товаров"""
+    if not session.get('seller_logged_in'):
+        return jsonify({'error': 'Нет доступа'}), 401
+    
+    statuses = [
+        {'value': 'в наличии', 'label': 'В наличии'},
+        {'value': 'продано', 'label': 'Продано'},
+        {'value': 'зарезервировано', 'label': 'Зарезервировано'},
+        {'value': 'взял себе', 'label': 'Взял себе'},
+        {'value': 'в пути', 'label': 'В пути'},
+    ]
+    
+    return jsonify({'statuses': statuses})
+
 @app.route('/seller/notification_count')
 def notification_count():
     """Количество непрочитанных уведомлений"""
@@ -1965,4 +1982,5 @@ if __name__ == '__main__':
     # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
 
