@@ -215,12 +215,20 @@
                             <h5 class="card-title">{{ item.name }}</h5>
                             <p class="card-text">
                                 <span class="badge bg-success">В наличии</span><br>
-                                <span class="badge bg-primary mt-2">Цена: {{ item.sell_price }} BYN</span>
+                                <span class="badge bg-primary mt-2">
+                                    {% if item.manual_price and item.manual_price != item.sell_price %}
+                                    Цена: 
+                                    <span class="text-decoration-line-through text-light opacity-75">{{ item.sell_price }}</span>
+                                    <span class="ms-1">{{ item.manual_price }} BYN</span>
+                                    {% else %}
+                                    Цена: {{ item.sell_price }} BYN
+                                    {% endif %}
+                                </span>
                             </p>
                         </div>
                         <div class="card-footer">
                             <small class="text-muted">
-                                <i class="fas fa-calendar"></i> Поступил: {{ item.date_arrived[:10] }}
+                                <i class="fas fa-calendar"></i> Поступил: {{ item.date_arrived[:10] if item.date_arrived else '—' }}
                             </small>
                         </div>
                     </div>
@@ -251,7 +259,15 @@
                             <h5 class="card-title">{{ item.name }}</h5>
                             <p class="card-text">
                                 <span class="badge bg-warning">Ожидается</span><br>
-                                <span class="badge bg-primary mt-2">Цена: {{ item.sell_price }} BYN</span>
+                                <span class="badge bg-primary mt-2">
+                                    {% if item.manual_price and item.manual_price != item.sell_price %}
+                                    Цена: 
+                                    <span class="text-decoration-line-through text-light opacity-75">{{ item.sell_price }}</span>
+                                    <span class="ms-1">{{ item.manual_price }} BYN</span>
+                                    {% else %}
+                                    Цена: {{ item.sell_price }} BYN
+                                    {% endif %}
+                                </span>
                             </p>
                         </div>
                         <div class="card-footer">
@@ -276,3 +292,4 @@
     
 </div>
 {% endblock %}
+
