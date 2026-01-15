@@ -1079,6 +1079,41 @@ def add_item():
         if conn:
             conn.close()
 
+@app.route('/seller/item_info/<int:item_id>')
+def get_item_info(item_id):
+    """Получить информацию о товаре"""
+    if not session.get('seller_logged_in'):
+        return jsonify({'error': 'Нет доступа'}), 401
+    
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT id, name, status FROM items WHERE id = %s', (item_id,))
+        item_tuple = cursor.fetchone()
+        
+        if not item_tuple:
+            return jsonify({'success': False, 'error': 'Товар не найден'})
+        
+        item = {
+            'id': item_tuple[0],
+            'name': item_tuple[1],
+            'status': item_tuple[2]
+        }
+        
+        return jsonify({'success': True, 'item': item})
+        
+    except Exception as e:
+        print(f"❌ Ошибка получения информации о товаре: {e}")
+        return jsonify({'success': False, 'error': str(e)})
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
 @app.route('/seller/update/<int:item_id>', methods=['POST'])
 def update_item(item_id):
     """Обновить статус товара (AJAX)"""
@@ -1993,6 +2028,7 @@ if __name__ == '__main__':
     # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
 
 
 
