@@ -4,16 +4,80 @@
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title">
-                    <i class="fas fa-truck-loading"></i> Новая поставка
+                    <i class="fas fa-truck-loading"></i> Новая поставка с товарами
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
                 <form id="shipmentForm">
-                    <div class="mb-3">
-                        <label class="form-label">Дата заказа поставки:</label>
-                        <input type="date" class="form-control" id="shipmentOrderDate" 
-                               value="{{ now.strftime('%Y-%m-%d') }}" required>
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Дата заказа поставки:</label>
+                            <input type="date" class="form-control" id="shipmentOrderDate" 
+                                   value="{{ now.strftime('%Y-%m-%d') }}" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Начальный статус:</label>
+                            <select class="form-control" id="shipmentStatus" required>
+                                <option value="в пути" selected>в пути</option>
+                                <option value="в наличии">в наличии</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="card mb-3">
+                        <div class="card-header bg-secondary text-white">
+                            <h6 class="mb-0">
+                                <i class="fas fa-boxes"></i> Товары в поставке
+                                <button type="button" class="btn btn-sm btn-light float-end" onclick="addItemRow()">
+                                    <i class="fas fa-plus"></i> Добавить товар
+                                </button>
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-sm" id="itemsTable">
+                                    <thead>
+                                        <tr>
+                                            <th>Название</th>
+                                            <th>Себестоимость</th>
+                                            <th>Цена продажи</th>
+                                            <th>Действия</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="itemsTableBody">
+                                        <!-- Строки будут добавляться динамически -->
+                                        <tr id="itemRow_0">
+                                            <td>
+                                                <input type="text" class="form-control form-control-sm" 
+                                                       placeholder="Название товара" required>
+                                            </td>
+                                            <td>
+                                                <div class="input-group input-group-sm">
+                                                    <input type="number" class="form-control" 
+                                                           step="0.01" min="0" value="10.50" required>
+                                                    <span class="input-group-text">BYN</span>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <div class="input-group input-group-sm">
+                                                    <input type="number" class="form-control" 
+                                                           step="0.01" min="0" value="15.00" required>
+                                                    <span class="input-group-text">BYN</span>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <button type="button" class="btn btn-sm btn-danger" 
+                                                        onclick="removeItemRow(0)" disabled>
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <small class="text-muted">Добавьте хотя бы один товар в поставку</small>
+                        </div>
                     </div>
                     
                     <div class="alert alert-info">
@@ -26,7 +90,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
-                <button type="button" class="btn btn-primary" onclick="createShipment()">
+                <button type="button" class="btn btn-primary" onclick="createShipmentWithItems()">
                     <i class="fas fa-check"></i> Создать поставку
                 </button>
             </div>
@@ -207,6 +271,71 @@
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
                 <button type="button" class="btn btn-warning" onclick="confirmUpdateShipmentStatus()">
                     <i class="fas fa-check"></i> Обновить статус
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="deleteShipmentModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title">
+                    <i class="fas fa-exclamation-triangle"></i> Подтверждение удаления
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Вы уверены, что хотите удалить поставку <strong id="deleteShipmentNumber"></strong>?</p>
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <strong>Внимание!</strong> Это действие невозможно отменить. Будут удалены:
+                    <ul class="mb-0 mt-1">
+                        <li>Поставка</li>
+                        <li>Все товары в этой поставке</li>
+                        <li>Транзакции связанные с этими товарами</li>
+                    </ul>
+                </div>
+                <p id="deleteShipmentInfo" class="text-muted small"></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-danger" onclick="confirmDeleteShipment()">
+                    <i class="fas fa-trash"></i> Удалить поставку
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно подтверждения удаления товара -->
+<div class="modal fade" id="deleteItemModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title">
+                    <i class="fas fa-exclamation-triangle"></i> Подтверждение удаления товара
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Вы уверены, что хотите удалить товар <strong id="deleteItemName"></strong>?</p>
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <strong>Внимание!</strong> Это действие невозможно отменить. Будут удалены:
+                    <ul class="mb-0 mt-1">
+                        <li>Товар из базы данных</li>
+                        <li>Все связанные транзакции</li>
+                        <li>Товар будет убран из поставки (счетчик уменьшится)</li>
+                    </ul>
+                </div>
+                <p id="deleteItemInfo" class="text-muted small"></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-danger" onclick="confirmDeleteItem()">
+                    <i class="fas fa-trash"></i> Удалить товар
                 </button>
             </div>
         </div>
