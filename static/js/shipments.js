@@ -458,32 +458,7 @@ function showAddMoreItemsModal(shipmentId, shipmentNumber) {
                                         </tr>
                                     </thead>
                                     <tbody id="${modalId}-itemsTableBody">
-                                        <tr id="${modalId}-itemRow_0">
-                                            <td>
-                                                <input type="text" class="form-control form-control-sm" 
-                                                       placeholder="Название товара" required>
-                                            </td>
-                                            <td>
-                                                <div class="input-group input-group-sm">
-                                                    <input type="number" class="form-control" 
-                                                           step="0.01" min="0" value="10.50" required>
-                                                    <span class="input-group-text">BYN</span>
-                                                </div>
-                                            </td>
-                                            <td>
-                                                <div class="input-group input-group-sm">
-                                                    <input type="number" class="form-control" 
-                                                           step="0.01" min="0" value="15.00" required>
-                                                    <span class="input-group-text">BYN</span>
-                                                </div>
-                                            </td>
-                                            <td>
-                                                <button type="button" class="btn btn-sm btn-danger" 
-                                                        onclick="removeMoreItemRow('${modalId}', 0)" disabled>
-                                                    <i class="fas fa-trash"></i>
-                                                </button>
-                                            </td>
-                                        </tr>
+                                        <!-- Строки будут добавляться динамически -->
                                     </tbody>
                                 </table>
                             </div>
@@ -507,7 +482,7 @@ function showAddMoreItemsModal(shipmentId, shipmentNumber) {
         document.body.appendChild(modalDiv);
     }
     
-    // Сбрасываем форму
+    // Сбрасываем форму - добавляем первую строку
     const tbody = document.getElementById(`${modalId}-itemsTableBody`);
     tbody.innerHTML = `
         <tr id="${modalId}-itemRow_0">
@@ -517,14 +492,14 @@ function showAddMoreItemsModal(shipmentId, shipmentNumber) {
             </td>
             <td>
                 <div class="input-group input-group-sm">
-                    <input type="number" class="form-control" 
+                    <input type="number" class="form-control item-cost" 
                            step="0.01" min="0" value="10.50" required>
                     <span class="input-group-text">BYN</span>
                 </div>
             </td>
             <td>
                 <div class="input-group input-group-sm">
-                    <input type="number" class="form-control" 
+                    <input type="number" class="form-control item-price" 
                            step="0.01" min="0" value="15.00" required>
                     <span class="input-group-text">BYN</span>
                 </div>
@@ -558,14 +533,14 @@ function addMoreItemRow(modalId) {
         </td>
         <td>
             <div class="input-group input-group-sm">
-                <input type="number" class="form-control" 
+                <input type="number" class="form-control item-cost" 
                        step="0.01" min="0" value="10.50" required>
                 <span class="input-group-text">BYN</span>
             </div>
         </td>
         <td>
             <div class="input-group input-group-sm">
-                <input type="number" class="form-control" 
+                <input type="number" class="form-control item-price" 
                        step="0.01" min="0" value="15.00" required>
                 <span class="input-group-text">BYN</span>
             </div>
@@ -580,9 +555,12 @@ function addMoreItemRow(modalId) {
     
     tbody.appendChild(newRow);
     
-    // Активируем кнопку удаления для первой строки
+    // Активируем кнопку удаления для первой строки, если есть вторая строка
     if (rowId === 1) {
-        document.querySelector(`#${modalId}-itemRow_0 .btn-danger`).removeAttribute('disabled');
+        const firstRowButton = document.querySelector(`#${modalId}-itemRow_0 .btn-danger`);
+        if (firstRowButton) {
+            firstRowButton.removeAttribute('disabled');
+        }
     }
 }
 
