@@ -277,6 +277,7 @@
     </div>
 </div>
 
+<!-- Модальное окно подтверждения удаления поставки -->
 <div class="modal fade" id="deleteShipmentModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -344,3 +345,18 @@
 
 <!-- Toast-контейнер для уведомлений -->
 <div id="toast-container" class="position-fixed bottom-0 end-0 p-3" style="z-index: 1060;"></div>
+
+<script>
+// Инициализация при загрузке страницы
+document.addEventListener('DOMContentLoaded', function() {
+    // Инициализируем первый товар в форме создания поставки
+    const firstRow = document.getElementById('itemRow_0');
+    if (firstRow) {
+        // Добавляем классы для полей ввода
+        const inputs = firstRow.querySelectorAll('input');
+        if (inputs[0]) inputs[0].className = 'form-control form-control-sm item-name';
+        if (inputs[1]) inputs[1].className = 'form-control item-cost';
+        if (inputs[2]) inputs[2].className = 'form-control item-price';
+    }
+});
+</script>
