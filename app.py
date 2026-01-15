@@ -847,16 +847,23 @@ def seller_login():
                 conn = get_db_connection()
                 cursor = conn.cursor()
                 
+                # Ищем активные сессии для этого пользователя
                 cursor.execute('''
-                    SELECT * FROM active_sessions 
-                    WHERE seller_id = %s AND is_active = TRUE
-                    ORDER BY last_activity DESC
+                    SELECT a.*, s.username, s.display_name
+                    FROM active_sessions a
+                    JOIN sellers s ON a.seller_id = s.id
+                    WHERE a.seller_id = %s AND a.is_active = TRUE
+                    ORDER BY a.last_activity DESC
                     LIMIT 1
                 ''', (seller['id'],))
                 
-                active_sessions = cursor.fetchall()
+                active_session_data = cursor.fetchone()
                 
-                if active_sessions and len(active_sessions) > 0:
+                if active_session_data:
+                    # Преобразуем результат в словарь
+                    columns = [desc[0] for desc in cursor.description]
+                    active_session = dict(zip(columns, active_session_data))
+                    
                     session['pending_login'] = {
                         'username': username,
                         'seller_id': seller['id'],
@@ -865,8 +872,10 @@ def seller_login():
                     
                     return render_template('login_warning.html',
                                          username=username,
+                                         active_session=active_session,
                                          expired_message=expired_message)
                 
+                # Если активной сессии нет, сразу логиним
                 return process_single_device_login(seller, request)
                 
             except Exception as e:
@@ -2160,6 +2169,7 @@ if __name__ == '__main__':
     # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
 
 
 
