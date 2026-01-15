@@ -1091,12 +1091,13 @@ def add_item():
         cursor = conn.cursor()
         
         cursor.execute('''
-        INSERT INTO items (name, cost_price, sell_price, status, date_arrived)
-        VALUES (%s, %s, %s, %s, %s) RETURNING id
+        INSERT INTO items (name, cost_price, sell_price, image_url, status, date_arrived)
+        VALUES (%s, %s, %s, %s, %s, %s) RETURNING id
         ''', (
             data['name'],
             float(data['cost_price']),
             float(data['sell_price']),
+            data.get('image_url', ''),
             data['status'],
             datetime.now().strftime('%Y-%m-%d')
         ))
@@ -2170,6 +2171,7 @@ if __name__ == '__main__':
     # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
 
 
 
