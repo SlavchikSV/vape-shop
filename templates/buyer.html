@@ -2,8 +2,66 @@
 
 {% block title %}Каталог товаров{% endblock %}
 
+{% block styles %}
+<style>
+    .product-image {
+        width: 100%;
+        height: 200px;
+        object-fit: cover;
+        border-radius: 8px;
+        margin-bottom: 15px;
+    }
+    
+    .no-image {
+        width: 100%;
+        height: 200px;
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #666;
+        margin-bottom: 15px;
+    }
+    
+    .no-image i {
+        font-size: 48px;
+    }
+    
+    .card {
+        transition: transform 0.2s;
+    }
+    
+    .card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+    }
+</style>
+{% endblock %}
+
 {% block scripts %}
 <script>
+    // Функция для загрузки изображений
+    function loadProductImages() {
+        document.querySelectorAll('.product-card').forEach(card => {
+            const img = card.querySelector('.product-image');
+            const imgUrl = img.dataset.src;
+            
+            if (imgUrl) {
+                img.onload = function() {
+                    img.style.display = 'block';
+                    img.previousElementSibling.style.display = 'none'; // Скрываем заглушку
+                };
+                img.onerror = function() {
+                    // Если изображение не загружается, показываем заглушку
+                    img.style.display = 'none';
+                    img.previousElementSibling.style.display = 'flex';
+                };
+                img.src = imgUrl;
+            }
+        });
+    }
+    
     // Автоматическое обновление списка активных продавцов каждые 10 секунд
     function updateActiveSellers() {
         fetch('/buyer/active_sellers')
@@ -135,6 +193,7 @@
     
     // Инициализация
     document.addEventListener('DOMContentLoaded', function() {
+        loadProductImages();
         setInterval(updateActiveSellers, 10000);
         setTimeout(updateActiveSellers, 1000);
     });
@@ -209,8 +268,23 @@
         <div class="card-body">
             <div class="row">
                 {% for item in in_stock %}
-                <div class="col-md-4 mb-3">
+                <div class="col-md-4 mb-3 product-card">
                     <div class="card h-100">
+                        {% if item.image_url %}
+                        <div class="no-image">
+                            <i class="fas fa-image"></i>
+                        </div>
+                        <img src="{{ item.image_url }}" 
+                             data-src="{{ item.image_url }}" 
+                             class="product-image" 
+                             alt="{{ item.name }}"
+                             style="display: none;">
+                        {% else %}
+                        <div class="no-image">
+                            <i class="fas fa-image"></i>
+                        </div>
+                        <img src="" class="product-image" style="display: none;">
+                        {% endif %}
                         <div class="card-body">
                             <h5 class="card-title">{{ item.name }}</h5>
                             <p class="card-text">
@@ -253,8 +327,23 @@
         <div class="card-body">
             <div class="row">
                 {% for item in in_transit %}
-                <div class="col-md-4 mb-3">
+                <div class="col-md-4 mb-3 product-card">
                     <div class="card h-100">
+                        {% if item.image_url %}
+                        <div class="no-image">
+                            <i class="fas fa-image"></i>
+                        </div>
+                        <img src="{{ item.image_url }}" 
+                             data-src="{{ item.image_url }}" 
+                             class="product-image" 
+                             alt="{{ item.name }}"
+                             style="display: none;">
+                        {% else %}
+                        <div class="no-image">
+                            <i class="fas fa-image"></i>
+                        </div>
+                        <img src="" class="product-image" style="display: none;">
+                        {% endif %}
                         <div class="card-body">
                             <h5 class="card-title">{{ item.name }}</h5>
                             <p class="card-text">
@@ -292,4 +381,3 @@
     
 </div>
 {% endblock %}
-
