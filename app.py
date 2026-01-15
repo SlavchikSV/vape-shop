@@ -295,12 +295,19 @@ def get_seller_by_username(username):
             conn.close()
 
 def utc_to_local(utc_dt, format_only_time=False):
-    """Конвертировать UTC время в локальное"""
+    """Конвертировать UTC время в локальное (Минск UTC+3)"""
     if not utc_dt:
         return ""
     
     try:
         if isinstance(utc_dt, str):
+            # Убираем лишние пробелы и символы
+            utc_dt = utc_dt.strip()
+            
+            # Если это только дата (без времени)
+            if len(utc_dt) == 10 and '-' in utc_dt:
+                return utc_dt
+                
             formats = [
                 '%Y-%m-%d %H:%M:%S',
                 '%Y-%m-%d %H:%M:%S.%f',
@@ -327,12 +334,12 @@ def utc_to_local(utc_dt, format_only_time=False):
         if format_only_time:
             return local_dt.strftime('%H:%M')
         else:
-            return local_dt.strftime('%H:%M:%S')
+            return local_dt.strftime('%Y-%m-%d %H:%M:%S')
             
     except Exception as e:
         print(f"Ошибка конвертации времени {utc_dt}: {e}")
         if isinstance(utc_dt, str) and len(utc_dt) > 10:
-            return utc_dt[11:16]
+            return utc_dt[:10]  # Возвращаем только дату при ошибке
         return str(utc_dt)
 
 def log_action(seller_id, action_type, item_id=None, details="", ip_address=None):
@@ -2040,6 +2047,7 @@ if __name__ == '__main__':
     # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
 
 
 
