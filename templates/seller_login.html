@@ -4,7 +4,6 @@
 
 {% block scripts %}
 <script>
-// Добавьте в блок <script> в seller_login.html
 // Обновление списка активных продавцов
 function updateActiveSellersList() {
     fetch('/seller/active_sellers_list_public')
@@ -92,17 +91,6 @@ function startSellerCountUpdates() {
 // Запуск при загрузке страницы
 document.addEventListener('DOMContentLoaded', function() {
     startSellerCountUpdates();
-    
-    // Добавляем анимацию пульсации
-    const style = document.createElement('style');
-    style.textContent = `
-        @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.5; }
-            100% { opacity: 1; }
-        }
-    `;
-    document.head.appendChild(style);
 });
 </script>
 {% endblock %}
@@ -177,7 +165,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             </span>
                         </div>
                         <button type="button" class="btn btn-sm btn-outline-info" 
-                                onclick="updateActiveSellersCount()">
+                                onclick="updateAllSellerInfo()">
                             <i class="fas fa-sync-alt"></i> Обновить
                         </button>
                     </div>
