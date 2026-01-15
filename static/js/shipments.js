@@ -184,6 +184,9 @@ function createShipmentWithItems() {
     
     showLoading('Создание поставки с товарами...');
     
+    // Генерируем номер поставки на клиенте для немедленного отображения
+    const tempShipmentNumber = `SHIP-${Date.now().toString().slice(-6)}`;
+    
     // Сначала создаем поставку
     fetch('/seller/shipments/create', {
         method: 'POST',
@@ -193,69 +196,71 @@ function createShipmentWithItems() {
             status: status
         })
     })
-    .then(response => response.json())
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+            return response.json();
+        } else {
+            return response.text().then(text => {
+                console.error("Non-JSON response:", text);
+                throw new Error("Сервер вернул не JSON ответ");
+            });
+        }
+    })
     .then(data => {
         if (data.success) {
+            const shipmentId = data.shipment_id;
+            const shipmentNumber = data.shipment_number || tempShipmentNumber;
+            
             // Затем добавляем товары в поставку
-            return fetch(`/seller/shipments/${data.shipment_id}/add_items`, {
+            return fetch(`/seller/shipments/${shipmentId}/add_items`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
                     items: items,
                     status: status
                 })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                const contentType = response.headers.get("content-type");
+                if (contentType && contentType.includes("application/json")) {
+                    return response.json();
+                } else {
+                    return response.text().then(text => {
+                        console.error("Non-JSON response:", text);
+                        throw new Error("Сервер вернул не JSON ответ");
+                    });
+                }
+            })
+            .then(itemData => {
+                return { shipmentId, shipmentNumber, itemData };
             });
         } else {
             throw new Error(data.error || 'Ошибка создания поставки');
         }
     })
-    .then(response => response.json())
-    .then(data => {
+    .then(({ shipmentId, shipmentNumber, itemData }) => {
         hideLoading();
-        if (data.success) {
-            showToast(`Создана поставка с ${data.added_count} товарами!`, 'success');
+        if (itemData.success) {
+            showToast(`Создана поставка ${shipmentNumber} с ${itemData.added_count} товарами!`, 'success');
             bootstrap.Modal.getInstance(document.getElementById('addShipmentModal')).hide();
             
-            // Сбрасываем форму
-            document.getElementById('itemsTableBody').innerHTML = `
-                <tr id="itemRow_0">
-                    <td>
-                        <input type="text" class="form-control form-control-sm" 
-                               placeholder="Название товара" required>
-                    </td>
-                    <td>
-                        <div class="input-group input-group-sm">
-                            <input type="number" class="form-control" 
-                                   step="0.01" min="0" value="10.50" required>
-                            <span class="input-group-text">BYN</span>
-                        </div>
-                    </td>
-                    <td>
-                        <div class="input-group input-group-sm">
-                            <input type="number" class="form-control" 
-                                   step="0.01" min="0" value="15.00" required>
-                            <span class="input-group-text">BYN</span>
-                        </div>
-                    </td>
-                    <td>
-                        <button type="button" class="btn btn-sm btn-danger" 
-                                onclick="removeItemRow(0)" disabled>
-                            <i class="fas fa-trash"></i>
-                        </button>
-                    </td>
-                </tr>
-            `;
-            itemRowCounter = 1;
-            
-            // Обновляем список поставок
+            // Обновляем список поставок с правильным номером
             loadShipments();
             setTimeout(() => location.reload(), 1000);
         } else {
-            showToast('Ошибка: ' + data.error, 'danger');
+            showToast('Ошибка добавления товаров: ' + itemData.error, 'danger');
         }
     })
     .catch(error => {
         hideLoading();
+        console.error('Full error:', error);
         showToast('Ошибка: ' + error.message, 'danger');
     });
 }
