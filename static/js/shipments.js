@@ -259,17 +259,22 @@ function showUpdateShipmentStatusModal(shipmentId, currentStatus) {
     const modal = new bootstrap.Modal(document.getElementById('updateShipmentStatusModal'));
     const statusSelect = document.getElementById('newShipmentStatus');
     const dateGroup = document.getElementById('receivedDateGroup');
+    const deliveryCostGroup = document.getElementById('deliveryCostGroup');
     
     // Устанавливаем текущий статус
     statusSelect.value = currentStatus;
     
-    // Показываем/скрываем поле даты получения
+    // Показываем/скрываем поля
     statusSelect.addEventListener('change', function() {
-        dateGroup.style.display = this.value === 'в наличии' ? 'block' : 'none';
+        const showDeliveryFields = this.value === 'в наличии';
+        dateGroup.style.display = showDeliveryFields ? 'block' : 'none';
+        deliveryCostGroup.style.display = showDeliveryFields ? 'block' : 'none';
     });
     
     // Инициализируем состояние
-    dateGroup.style.display = currentStatus === 'в наличии' ? 'block' : 'none';
+    const showDeliveryFields = currentStatus === 'в наличии';
+    dateGroup.style.display = showDeliveryFields ? 'block' : 'none';
+    deliveryCostGroup.style.display = showDeliveryFields ? 'block' : 'none';
     
     modal.show();
 }
@@ -280,13 +285,26 @@ function confirmUpdateShipmentStatus() {
     const receivedDate = newStatus === 'в наличии' ? 
         document.getElementById('shipmentReceivedDate').value : 
         null;
+    const deliveryCost = newStatus === 'в наличии' ? 
+        parseFloat(document.getElementById('shipmentDeliveryCost').value) || 0 : 
+        0;
     
-    if (newStatus === 'в наличии' && !receivedDate) {
-        showToast('Укажите дату получения', 'warning');
-        return;
+    if (newStatus === 'в наличии') {
+        if (!receivedDate) {
+            showToast('Укажите дату получения', 'warning');
+            return;
+        }
+        if (isNaN(deliveryCost) || deliveryCost < 0) {
+            showToast('Укажите корректную стоимость доставки', 'warning');
+            return;
+        }
     }
     
-    if (!confirm(`Вы уверены, что хотите изменить статус поставки на "${newStatus}"? Все товары в поставке также изменят свой статус.`)) {
+    const message = newStatus === 'в наличии' ? 
+        `Вы уверены, что хотите изменить статус поставки на "${new_status}"? Все товары в поставке также изменят свой статус. Стоимость доставки ${deliveryCost} BYN будет вычтена из капитала.` :
+        `Вы уверены, что хотите изменить статус поставки на "${new_status}"? Все товары в поставке также изменят свой статус.`;
+    
+    if (!confirm(message)) {
         return;
     }
     
@@ -297,17 +315,17 @@ function confirmUpdateShipmentStatus() {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
             status: newStatus,
-            received_date: receivedDate
+            received_date: receivedDate,
+            delivery_cost: deliveryCost
         })
     })
     .then(response => response.json())
     .then(data => {
         hideLoading();
         if (data.success) {
-            showToast(`Статус поставки изменен на "${newStatus}"`, 'success');
+            showToast(`Статус поставки изменен на "${newStatus}"${deliveryCost > 0 ? ` (Доставка: ${deliveryCost} BYN)` : ''}`, 'success');
             bootstrap.Modal.getInstance(document.getElementById('updateShipmentStatusModal')).hide();
             loadShipments();
-            // Обновляем таблицу товаров через 1 секунду
             setTimeout(() => {
                 if (typeof updateItemTable === 'function') {
                     updateItemTable();
