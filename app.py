@@ -1457,7 +1457,7 @@ def active_sellers_count_public():
 
 @app.route('/seller/active_sellers_list_public')
 def active_sellers_list_public():
-    """Список активных продавцов (публичный доступ)"""
+    """Список активных продавцов (публичный доступ) с правильным временем"""
     clear_old_sessions()
     
     conn = None
@@ -1483,12 +1483,21 @@ def active_sellers_list_public():
         for seller in sellers:
             try:
                 login_time = seller[2]
-                if isinstance(login_time, str):
-                    utc_time = datetime.strptime(login_time, '%Y-%m-%d %H:%M:%S')
+                if login_time:
+                    # Преобразуем UTC в локальное время
+                    if isinstance(login_time, str):
+                        try:
+                            utc_time = datetime.strptime(login_time, '%Y-%m-%d %H:%M:%S')
+                        except:
+                            utc_time = datetime.now()
+                    else:
+                        utc_time = login_time
+                    
+                    # Добавляем 3 часа для Минска (UTC+3)
                     local_time = utc_time + timedelta(hours=3)
                     login_time_short = local_time.strftime('%H:%M')
                 else:
-                    login_time_short = login_time.strftime('%H:%M')
+                    login_time_short = '??:??'
             except:
                 login_time_short = seller[2][11:16] if seller[2] and len(str(seller[2])) > 16 else '??:??'
             
@@ -2143,6 +2152,7 @@ if __name__ == '__main__':
     # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
 
 
 
