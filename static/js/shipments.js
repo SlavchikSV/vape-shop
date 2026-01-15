@@ -303,7 +303,7 @@ function confirmUpdateShipmentStatus() {
     
     showLoading('Обновление статуса...');
     
-    fetch(`/seller/shipments/${currentShipmentId}/update_status`, {
+    fetch(`/seller/shipments/${currentShipmentId}/update_status_with_delivery`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
