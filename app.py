@@ -1491,8 +1491,14 @@ def get_shipments():
         cursor = conn.cursor()
         
         cursor.execute('''
-            SELECT * FROM shipments 
-            ORDER BY order_date DESC, id DESC
+            SELECT s.*, 
+                   CASE 
+                       WHEN s.shipment_number IS NOT NULL AND s.shipment_number != '' 
+                       THEN s.shipment_number
+                       ELSE 'SHIP-' || LPAD(s.id::text, 3, '0')
+                   END as display_number
+            FROM shipments s 
+            ORDER BY s.order_date DESC, s.id DESC
         ''')
         
         shipments = cursor.fetchall()
@@ -1500,7 +1506,13 @@ def get_shipments():
         
         shipments_list = []
         for shipment_tuple in shipments:
-            shipments_list.append(dict(zip(columns, shipment_tuple)))
+            shipment_dict = dict(zip(columns, shipment_tuple))
+            
+            # Используем display_number вместо shipment_number для отображения
+            if not shipment_dict.get('shipment_number') or shipment_dict['shipment_number'] == '':
+                shipment_dict['shipment_number'] = f"SHIP-{shipment_dict['id']:03d}"
+            
+            shipments_list.append(shipment_dict)
         
         return jsonify({'shipments': shipments_list})
         
@@ -1528,12 +1540,11 @@ def create_shipment():
         cursor = conn.cursor()
         
         # Получаем последний номер
-        cursor.execute('SELECT shipment_number FROM shipments ORDER BY id DESC LIMIT 1')
+        cursor.execute('SELECT id FROM shipments ORDER BY id DESC LIMIT 1')
         last_shipment = cursor.fetchone()
         
-        if last_shipment and last_shipment[0].startswith('SHIP-'):
-            last_num = int(last_shipment[0].split('-')[1])
-            new_num = last_num + 1
+        if last_shipment:
+            new_num = last_shipment[0] + 1
         else:
             new_num = 1
         
@@ -1982,5 +1993,6 @@ if __name__ == '__main__':
     # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
 
 
