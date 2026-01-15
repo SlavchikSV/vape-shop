@@ -1133,7 +1133,7 @@ def get_item_info(item_id):
 
 @app.route('/seller/update/<int:item_id>', methods=['POST'])
 def update_item(item_id):
-    """Обновить статус товара (AJAX)"""
+    """Обновить статус товара и проверяем статус поставки"""
     if not session.get('seller_logged_in'):
         return jsonify({'error': 'Нет доступа'}), 401
     
@@ -1157,7 +1157,7 @@ def update_item(item_id):
         
         old_status = item['status']
         
-        # Обновляем статус
+        # Обновляем статус товара
         if new_status == 'продано':
             cursor.execute('UPDATE items SET status = %s, date_sold = %s WHERE id = %s',
                           (new_status, datetime.now().strftime('%Y-%m-%d'), item_id))
@@ -1179,6 +1179,49 @@ def update_item(item_id):
                 float(item['sell_price']),
                 f'Продажа {item["name"]}'
             ))
+        
+        # Проверяем и обновляем статус поставки
+        if item.get('shipment_id'):
+            # Проверяем статусы всех товаров в поставке
+            cursor.execute('''
+                SELECT 
+                    COUNT(*) as total,
+                    SUM(CASE WHEN status = 'продано' THEN 1 ELSE 0 END) as sold_count,
+                    SUM(CASE WHEN status = 'взял себе' THEN 1 ELSE 0 END) as taken_count
+                FROM items 
+                WHERE shipment_id = %s
+            ''', (item['shipment_id'],))
+            
+            stats = cursor.fetchone()
+            total_items = stats[0]
+            sold_count = stats[1] or 0
+            taken_count = stats[2] or 0
+            
+            # Получаем текущий статус поставки
+            cursor.execute('SELECT status FROM shipments WHERE id = %s', (item['shipment_id'],))
+            shipment_status = cursor.fetchone()
+            
+            if shipment_status:
+                shipment_status = shipment_status[0]
+                
+                # Если все товары проданы или взяты себе
+                if (sold_count + taken_count) == total_items:
+                    # Все товары проданы - поставка продана
+                    if sold_count == total_items:
+                        cursor.execute('UPDATE shipments SET status = %s WHERE id = %s', 
+                                      ('продано', item['shipment_id']))
+                    # Все товары взяты себе - поставка завершена
+                    elif taken_count == total_items:
+                        cursor.execute('UPDATE shipments SET status = %s WHERE id = %s', 
+                                      ('завершена', item['shipment_id']))
+                    # Смешанный статус - поставка частично продана
+                    else:
+                        cursor.execute('UPDATE shipments SET status = %s WHERE id = %s', 
+                                      ('частично продана', item['shipment_id']))
+                # Если есть хотя бы один проданный товар, но не все
+                elif sold_count > 0:
+                    cursor.execute('UPDATE shipments SET status = %s WHERE id = %s', 
+                                  ('частично продана', item['shipment_id']))
         
         conn.commit()
         
@@ -2047,6 +2090,7 @@ if __name__ == '__main__':
     # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
 
 
 
