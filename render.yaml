@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: shop-app
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: shop-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: PYTHON_VERSION
+        value: 3.9.0
+
+databases:
+  - name: shop-db
+    plan: free
+    databaseName: vape_shop
+    user: vape_shop_user
