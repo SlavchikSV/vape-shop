@@ -57,7 +57,11 @@ function submitForm(action) {
                         <div class="card-body">
                             <p><strong>Устройство:</strong> 
                                 {% if active_session.user_agent %}
-                                    {{ active_session.user_agent|truncate(50) }}
+                                    {% if active_session.user_agent|length > 50 %}
+                                        {{ active_session.user_agent[:50] }}...
+                                    {% else %}
+                                        {{ active_session.user_agent }}
+                                    {% endif %}
                                 {% else %}
                                     Неизвестно
                                 {% endif %}
@@ -73,8 +77,8 @@ function submitForm(action) {
                         </div>
                     </div>
                     {% else %}
-                    <div class="alert alert-danger">
-                        <i class="fas fa-exclamation-circle"></i> Не удалось получить информацию о сессии
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-circle"></i> Информация о текущей сессии недоступна
                     </div>
                     {% endif %}
                 </div>
