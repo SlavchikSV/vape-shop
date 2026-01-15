@@ -614,13 +614,21 @@ function addMoreItemsToShipment(modalId) {
     
     let hasErrors = false;
     itemRows.forEach((row, index) => {
+        // Исправляем получение элементов
         const nameInput = row.querySelector('input[type="text"]');
-        const costInput = row.querySelectorAll('input[type="number"]')[0];
-        const priceInput = row.querySelectorAll('input[type="number"]')[1];
+        const numberInputs = row.querySelectorAll('input[type="number"]');
+        const costInput = numberInputs[0];
+        const priceInput = numberInputs[1];
         
         // Проверяем заполненность полей
         if (!nameInput || !nameInput.value.trim()) {
             showToast(`Товар ${index + 1}: укажите название`, 'warning');
+            hasErrors = true;
+            return;
+        }
+        
+        if (!costInput || !priceInput) {
+            showToast(`Товар ${index + 1}: некорректные поля ввода`, 'warning');
             hasErrors = true;
             return;
         }
@@ -655,7 +663,12 @@ function addMoreItemsToShipment(modalId) {
     
     // Получаем текущий статус поставки
     fetch(`/seller/shipments/${currentShipmentId}`)
-        .then(response => response.json())
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            return response.json();
+        })
         .then(data => {
             if (data.shipments && data.shipments.length > 0) {
                 const shipment = data.shipments[0];
@@ -674,7 +687,12 @@ function addMoreItemsToShipment(modalId) {
                 throw new Error('Поставка не найдена');
             }
         })
-        .then(response => response.json())
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            return response.json();
+        })
         .then(data => {
             hideLoading();
             if (data.success) {
@@ -688,11 +706,12 @@ function addMoreItemsToShipment(modalId) {
                 loadShipments();
                 setTimeout(() => location.reload(), 1000);
             } else {
-                showToast('Ошибка: ' + data.error, 'danger');
+                showToast('Ошибка: ' + (data.error || 'Неизвестная ошибка'), 'danger');
             }
         })
         .catch(error => {
             hideLoading();
+            console.error('Ошибка добавления товаров:', error);
             showToast('Ошибка: ' + error.message, 'danger');
         });
 }
