@@ -162,6 +162,7 @@ def init_db():
         default_sellers = [
             ('SlavchikSV', 'sv280606', 'Администратор', 'admin'),
             ('mkozlov', '020988mama', 'Главный администратор', 'admin'),
+            ('g_nix', 'IHHujhg655G', 'Продавец', 'seller'),
         ]
         
         for username, password, display, role in default_sellers:
@@ -1972,5 +1973,6 @@ if __name__ == '__main__':
     # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
 
 
