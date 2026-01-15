@@ -1516,14 +1516,14 @@ def create_shipment():
         
         shipment_number = f"SHIP-{new_num:03d}"
         
+        # УБИРАЕМ delivery_cost из создания поставки
         cursor.execute('''
-        INSERT INTO shipments (shipment_number, order_date, delivery_cost, status)
-        VALUES (%s, %s, %s, %s) RETURNING id
+        INSERT INTO shipments (shipment_number, order_date, status)
+        VALUES (%s, %s, %s) RETURNING id
         ''', (
             shipment_number,
             data['order_date'],
-            float(data['delivery_cost']),
-            data['status']
+            'в пути'  # Все новые поставки по умолчанию "в пути"
         ))
         
         shipment_id = cursor.fetchone()[0]
@@ -1545,6 +1545,108 @@ def create_shipment():
             conn.rollback()
         log_action(session.get('seller_id'), 'error', 
                   details=f'Ошибка создания поставки: {str(e)}')
+        return jsonify({'error': str(e)}), 400
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+# Добавим новую функцию для обновления статуса с доставкой
+@app.route('/seller/shipments/<int:shipment_id>/update_status', methods=['POST'])
+def update_shipment_status(shipment_id):
+    """Обновить статус поставки с учетом стоимости доставки"""
+    if not session.get('seller_logged_in'):
+        return jsonify({'error': 'Нет доступа'}), 401
+    
+    conn = None
+    cursor = None
+    try:
+        data = request.get_json()
+        new_status = data['status']
+        received_date = data.get('received_date', datetime.now().strftime('%Y-%m-%d'))
+        delivery_cost = data.get('delivery_cost', 0)  # Получаем стоимость доставки
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Обновляем статус поставки и добавляем стоимость доставки
+        cursor.execute('''
+        UPDATE shipments 
+        SET status = %s, received_date = %s, delivery_cost = %s, updated_at = %s
+        WHERE id = %s
+        RETURNING shipment_number
+        ''', (new_status, received_date, float(delivery_cost) if delivery_cost else 0,
+              datetime.now().strftime('%Y-%m-%d %H:%M:%S'), shipment_id))
+        
+        shipment = cursor.fetchone()
+        
+        # Обновляем статус товаров
+        cursor.execute('''
+        UPDATE items 
+        SET status = %s, date_arrived = %s
+        WHERE shipment_id = %s AND status != 'продано' AND status != 'взял себе'
+        ''', (new_status, received_date, shipment_id))
+        
+        # Если статус меняется на "в наличии", добавляем транзакции
+        if new_status == 'в наличии':
+            # 1. Получаем все товары из поставки
+            cursor.execute('''
+            SELECT id, name, cost_price FROM items 
+            WHERE shipment_id = %s AND status = 'в наличии'
+            ''', (shipment_id,))
+            
+            items = cursor.fetchall()
+            
+            total_purchase_cost = 0
+            
+            for item in items:
+                cursor.execute('''
+                SELECT tx_id FROM transactions 
+                WHERE item_id = %s AND type = 'purchase'
+                ''', (item[0],))
+                
+                existing_tx = cursor.fetchone()
+                
+                if not existing_tx:
+                    # Добавляем транзакцию покупки товара
+                    cursor.execute('''
+                    INSERT INTO transactions (date, type, item_id, amount, note)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ''', (
+                        received_date,
+                        'purchase',
+                        item[0],
+                        -float(item[2]),  # Отрицательная сумма - расход
+                        f'Покупка {item[1]}'
+                    ))
+                    total_purchase_cost += float(item[2])
+            
+            # 2. Добавляем отдельную транзакцию для доставки
+            if delivery_cost and float(delivery_cost) > 0:
+                cursor.execute('''
+                INSERT INTO transactions (date, type, amount, note)
+                VALUES (%s, %s, %s, %s)
+                ''', (
+                    received_date,
+                    'delivery',
+                    -float(delivery_cost),  # Отрицательная сумма - расход
+                    f'Доставка поставки {shipment[0] if shipment else shipment_id}'
+                ))
+        
+        conn.commit()
+        
+        log_action(session['seller_id'], 'update_shipment_status', 
+                  details=f'Статус поставки #{shipment_id} изменен на "{new_status}" с доставкой {delivery_cost} BYN')
+        
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        print(f"❌ Ошибка обновления статуса: {e}")
+        if conn:
+            conn.rollback()
+        log_action(session.get('seller_id'), 'error', 
+                  details=f'Ошибка обновления статуса поставки: {str(e)}')
         return jsonify({'error': str(e)}), 400
     finally:
         if cursor:
@@ -1870,3 +1972,4 @@ if __name__ == '__main__':
     # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
