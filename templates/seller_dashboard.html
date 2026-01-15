@@ -181,12 +181,73 @@ function updateActiveSellersList(sellers) {
     container.innerHTML = html;
 }
 
-// Изменение статуса товара
-function updateStatus(itemId, currentStatus) {
-    const newStatus = prompt('Новый статус:', currentStatus);
-    if (!newStatus || newStatus === currentStatus) return;
+// Функция для показа модального окна изменения статуса товара
+function showUpdateItemStatusModal(itemId, currentStatus, itemName) {
+    // Создаем динамическое модальное окно
+    const modalId = `update-item-status-${itemId}`;
+    let modalDiv = document.getElementById(modalId);
     
-    fetch('/seller/update/' + itemId, {
+    if (!modalDiv) {
+        modalDiv = document.createElement('div');
+        modalDiv.className = 'modal fade';
+        modalDiv.id = modalId;
+        modalDiv.innerHTML = `
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-warning">
+                    <h5 class="modal-title">
+                        <i class="fas fa-sync"></i> Изменить статус товара
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="${modalId}-form">
+                        <div class="mb-3">
+                            <label class="form-label">Товар:</label>
+                            <input type="text" class="form-control" value="${itemName.replace(/'/g, "\\'")}" readonly>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Новый статус:</label>
+                            <select class="form-control" id="${modalId}-statusSelect" required>
+                                <option value="в наличии" ${currentStatus === 'в наличии' ? 'selected' : ''}>В наличии</option>
+                                <option value="продано" ${currentStatus === 'продано' ? 'selected' : ''}>Продано</option>
+                                <option value="зарезервировано" ${currentStatus === 'зарезервировано' ? 'selected' : ''}>Зарезервировано</option>
+                                <option value="взял себе" ${currentStatus === 'взял себе' ? 'selected' : ''}>Взял себе</option>
+                            </select>
+                        </div>
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle"></i>
+                            При смене статуса на "продано" будет создана транзакция продажи.
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="button" class="btn btn-warning" onclick="confirmUpdateItemStatus(${itemId}, '${modalId}')">
+                        <i class="fas fa-check"></i> Обновить статус
+                    </button>
+                </div>
+            </div>
+        </div>
+        `;
+        document.body.appendChild(modalDiv);
+    }
+    
+    const modal = new bootstrap.Modal(modalDiv);
+    modal.show();
+}
+
+// Функция для подтверждения изменения статуса товара
+function confirmUpdateItemStatus(itemId, modalId) {
+    const statusSelect = document.getElementById(`${modalId}-statusSelect`);
+    const newStatus = statusSelect.value;
+    
+    if (!newStatus) {
+        alert('Выберите статус');
+        return;
+    }
+    
+    fetch(`/seller/update/${itemId}`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({status: newStatus})
@@ -195,6 +256,11 @@ function updateStatus(itemId, currentStatus) {
     .then(data => {
         if (data.success) {
             alert('Статус обновлён!');
+            
+            // Закрываем модальное окно
+            const modal = bootstrap.Modal.getInstance(document.getElementById(modalId));
+            if (modal) modal.hide();
+            
             location.reload();
         } else {
             alert('Ошибка: ' + data.error);
@@ -281,7 +347,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const shipmentButtons = [
         'add-shipment-btn',
         'load-shipments-btn',
-        'delete-mode-btn',
         'add-single-item-btn'
     ];
     
@@ -307,7 +372,7 @@ document.addEventListener('DOMContentLoaded', function() {
             <strong>{{ session.display_name }}</strong> 
             ({{ session.seller_username }})
             <span class="ms-3">
-                <i class="fas fa-clock"></i> Время входа: {{ login_time_local }}
+                <i class="fas fa-clock"></i> Время входа: {{ session.login_time_local }}
             </span>
         </div>
         <div class="d-flex gap-2 align-items-center">
@@ -356,7 +421,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                         <small class="text-muted">Вошел: {{ seller.login_time_local }}</small>
                                     </div>
                                     <span class="badge bg-{{ seller.status_class }}">{{ seller.status_text }}</span>
-                                </div>
+                                    </div>
                             </div>
                             {% endfor %}
                         {% else %}
@@ -477,12 +542,18 @@ document.addEventListener('DOMContentLoaded', function() {
                     </thead>
                     <tbody>
                         {% for item in items %}
-                        <tr class="{% if item.status == 'в наличии' %}table-success{% elif item.status == 'в пути' %}table-warning{% elif item.status == 'продано' %}table-danger{% elif item.status == 'взял себе' %}table-info{% endif %}">
+                        <tr class="{% if item.status == 'в наличии' %}table-success{% elif item.status == 'в пути' %}table-warning{% elif item.status == 'продано' %}table-danger{% elif item.status == 'взял себе' or item.status == 'зарезервировано' %}table-info{% endif %}">
                             <td>{{ item.id }}</td>
                             <td>{{ item.name }}</td>
                             <td>
                                 {% if item.shipment_id %}
-                                <span class="badge bg-secondary">SHIP-{{ "%03d"|format(item.shipment_id) }}</span>
+                                <span class="badge bg-secondary">
+                                    {% if item.shipment_number %}
+                                        {{ item.shipment_number }}
+                                    {% else %}
+                                        SHIP-{{ "%03d"|format(item.shipment_id) }}
+                                    {% endif %}
+                                </span>
                                 {% else %}
                                 <span class="text-muted">—</span>
                                 {% endif %}
@@ -503,7 +574,8 @@ document.addEventListener('DOMContentLoaded', function() {
                                     {% if item.status == 'в наличии' %}bg-success
                                     {% elif item.status == 'в пути' %}bg-warning
                                     {% elif item.status == 'продано' %}bg-danger
-                                    {% elif item.status == 'взял себе' %}bg-info
+                                    {% elif item.status == 'зарезервировано' %}bg-info
+                                    {% elif item.status == 'взял себе' %}bg-secondary
                                     {% else %}bg-secondary{% endif %}">
                                     {{ item.status }}
                                 </span>
@@ -522,12 +594,16 @@ document.addEventListener('DOMContentLoaded', function() {
                                 </small>
                             </td>
                             <td>
+                                {% if item.status != 'в пути' %}
                                 <button class="btn btn-sm btn-outline-primary update-btn" 
-                                        data-id="{{ item.id }}" 
-                                        data-status="{{ item.status }}"
-                                        onclick="updateStatus({{ item.id }}, '{{ item.status }}')">
+                                        onclick="showUpdateItemStatusModal({{ item.id }}, '{{ item.status }}', '{{ item.name|replace("'", "\\'")|safe }}')">
                                     <i class="fas fa-edit"></i> Статус
                                 </button>
+                                {% else %}
+                                <button class="btn btn-sm btn-outline-secondary" disabled>
+                                    <i class="fas fa-edit"></i> Статус
+                                </button>
+                                {% endif %}
                             </td>
                         </tr>
                         {% endfor %}
@@ -575,4 +651,3 @@ document.addEventListener('DOMContentLoaded', function() {
 <!-- Включаем модальные окна -->
 {% include 'modals.html' %}
 {% endblock %}
-
