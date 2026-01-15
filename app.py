@@ -1892,6 +1892,70 @@ def truncate_filter(s, length=30):
         return s
     return s[:length] + "..."
 
+@app.route('/seller/shipments/<int:shipment_id>/delete', methods=['POST'])
+def delete_shipment(shipment_id):
+    """Удалить поставку со всеми товарами"""
+    if not session.get('seller_logged_in'):
+        return jsonify({'error': 'Нет доступа'}), 401
+    
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Получаем информацию о поставке
+        cursor.execute('SELECT shipment_number, total_items FROM shipments WHERE id = %s', (shipment_id,))
+        shipment = cursor.fetchone()
+        
+        if not shipment:
+            return jsonify({'error': 'Поставка не найдена'}), 404
+        
+        shipment_number = shipment[0]
+        total_items = shipment[1]
+        
+        # Удаляем транзакции связанные с товарами из этой поставки
+        cursor.execute('''
+            DELETE FROM transactions 
+            WHERE item_id IN (
+                SELECT id FROM items WHERE shipment_id = %s
+            )
+        ''', (shipment_id,))
+        
+        # Удаляем товары из этой поставки
+        cursor.execute('DELETE FROM items WHERE shipment_id = %s', (shipment_id,))
+        
+        # Удаляем уведомления связанные с этими товарами
+        cursor.execute('''
+            DELETE FROM notifications 
+            WHERE item_id IN (
+                SELECT id FROM items WHERE shipment_id = %s
+            )
+        ''', (shipment_id,))
+        
+        # Удаляем саму поставку
+        cursor.execute('DELETE FROM shipments WHERE id = %s', (shipment_id,))
+        
+        conn.commit()
+        
+        log_action(session['seller_id'], 'delete_shipment', 
+                  details=f'Удалена поставка {shipment_number} с {total_items} товарами')
+        
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        print(f"❌ Ошибка удаления поставки: {e}")
+        if conn:
+            conn.rollback()
+        log_action(session.get('seller_id'), 'error', 
+                  details=f'Ошибка удаления поставки: {str(e)}')
+        return jsonify({'error': str(e)}), 400
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
 # ==================== ЗАПУСК СЕРВЕРА ====================
 
 if __name__ == '__main__':
@@ -1901,3 +1965,4 @@ if __name__ == '__main__':
     # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
