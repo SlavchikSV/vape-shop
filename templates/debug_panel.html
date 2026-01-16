@@ -1,0 +1,506 @@
+{% extends "base.html" %}
+
+{% block title %}Панель отладки{% endblock %}
+
+{% block styles %}
+<style>
+    .debug-icon {
+        position: fixed;
+        bottom: 20px;
+        left: 20px;
+        z-index: 9998;
+        opacity: 0.3;
+        transition: opacity 0.3s;
+    }
+    
+    .debug-icon:hover {
+        opacity: 1;
+    }
+    
+    .debug-panel {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+    
+    .danger-zone {
+        border: 2px solid #dc3545;
+        background: rgba(220, 53, 69, 0.1);
+    }
+    
+    .code-block {
+        font-family: 'Courier New', monospace;
+        background: #1a1a1a;
+        color: #00ff00;
+        padding: 10px;
+        border-radius: 5px;
+        max-height: 200px;
+        overflow-y: auto;
+    }
+    
+    .stat-card {
+        transition: transform 0.2s;
+    }
+    
+    .stat-card:hover {
+        transform: translateY(-5px);
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Автообновление статистики
+function updateStatistics() {
+    fetch('/seller/debug/api/statistics')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                updateStatisticsDisplay(data.statistics);
+            }
+        })
+        .catch(error => console.error('Ошибка обновления статистики:', error));
+}
+
+function updateStatisticsDisplay(stats) {
+    // Обновляем счетчики в реальном времени
+    for (const [table, data] of Object.entries(stats)) {
+        const element = document.getElementById(`stat-${table}`);
+        if (element) {
+            const current = parseInt(element.textContent) || 0;
+            const target = data.count || 0;
+            
+            if (current !== target) {
+                animateCounter(element, target);
+            }
+        }
+    }
+    
+    // Обновляем размер базы данных
+    const sizeElement = document.getElementById('db-size');
+    if (sizeElement && stats.database_size) {
+        sizeElement.textContent = `${stats.database_size.mb} MB`;
+    }
+}
+
+function animateCounter(element, target) {
+    let current = parseInt(element.textContent) || 0;
+    const increment = target > current ? 1 : -1;
+    const steps = Math.abs(target - current);
+    const duration = 500;
+    const stepTime = duration / steps;
+    
+    let step = 0;
+    const timer = setInterval(() => {
+        current += increment;
+        element.textContent = current;
+        step++;
+        
+        if (step >= steps) {
+            clearInterval(timer);
+            element.textContent = target;
+        }
+    }, stepTime);
+}
+
+// Подтверждение опасных действий
+function confirmDangerousAction(form, message) {
+    if (!confirm(`⚠️ ВНИМАНИЕ: ${message}\n\nЭто действие НЕОБРАТИМО!\nВведите пароль администратора для подтверждения.`)) {
+        return false;
+    }
+    
+    const password = prompt('🔒 Введите пароль администратора:');
+    if (!password) {
+        return false;
+    }
+    
+    // Добавляем пароль в форму
+    const passwordInput = document.createElement('input');
+    passwordInput.type = 'hidden';
+    passwordInput.name = 'password';
+    passwordInput.value = password;
+    form.appendChild(passwordInput);
+    
+    return true;
+}
+
+// Показать/скрыть пароль
+function togglePassword(inputId) {
+    const input = document.getElementById(inputId);
+    const toggle = document.querySelector(`#${inputId} + .input-group-text i`);
+    
+    if (input.type === 'password') {
+        input.type = 'text';
+        toggle.className = 'fas fa-eye-slash';
+    } else {
+        input.type = 'password';
+        toggle.className = 'fas fa-eye';
+    }
+}
+
+// Запуск при загрузке
+document.addEventListener('DOMContentLoaded', function() {
+    // Обновляем статистику каждые 10 секунд
+    updateStatistics();
+    setInterval(updateStatistics, 10000);
+    
+    // Добавляем обработчики для опасных действий
+    document.querySelectorAll('.danger-action').forEach(form => {
+        form.addEventListener('submit', function(e) {
+            const action = this.querySelector('[name="action"]').value;
+            let message = '';
+            
+            switch(action) {
+                case 'clear_logs':
+                    message = 'Вы собираетесь удалить ВСЕ логи действий и уведомления.';
+                    break;
+                case 'clear_all_data':
+                    message = 'Вы собираетесь удалить ВСЕ данные кроме пользователей. Это очистит товары, поставки, транзакции, логи и уведомления!';
+                    break;
+                case 'clear_shipments':
+                    message = 'Вы собираетесь удалить ВСЕ поставки. Товары останутся, но будут без привязки к поставкам.';
+                    break;
+                default:
+                    message = 'Вы собираетесь выполнить опасное действие.';
+            }
+            
+            if (!confirmDangerousAction(this, message)) {
+                e.preventDefault();
+            }
+        });
+    });
+    
+    // Копирование информации в буфер обмена
+    document.querySelectorAll('.copy-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const text = this.getAttribute('data-copy');
+            navigator.clipboard.writeText(text).then(() => {
+                const originalHTML = this.innerHTML;
+                this.innerHTML = '<i class="fas fa-check"></i> Скопировано!';
+                setTimeout(() => {
+                    this.innerHTML = originalHTML;
+                }, 2000);
+            });
+        });
+    });
+});
+</script>
+{% endblock %}
+
+{% block content %}
+<!-- Иконка отладки (всегда видна только для админа) -->
+{% if session.seller_username == 'SlavchikSV' %}
+<a href="{{ url_for('debug_panel') }}" class="debug-icon" title="Панель отладки">
+    <div class="bg-danger text-white rounded-circle p-3 shadow-lg">
+        <i class="fas fa-bug fa-2x"></i>
+    </div>
+</a>
+{% endif %}
+
+<div class="container mt-4">
+    <div class="card debug-panel text-white mb-4">
+        <div class="card-body text-center">
+            <h1 class="display-4">
+                <i class="fas fa-bug"></i> Панель отладки
+            </h1>
+            <p class="lead">Скрытая панель администратора для управления базой данных</p>
+            <small class="text-light">
+                <i class="fas fa-user-shield"></i> Вошли как: <strong>{{ session.seller_username }}</strong> | 
+                <i class="fas fa-clock"></i> {{ now.strftime('%Y-%m-%d %H:%M:%S') }}
+            </small>
+        </div>
+    </div>
+    
+    <!-- Быстрая статистика -->
+    <div class="row mb-4">
+        <div class="col-md-3 mb-3">
+            <div class="card stat-card bg-primary text-white">
+                <div class="card-body text-center">
+                    <h5><i class="fas fa-box"></i> Товары</h5>
+                    <h2 id="stat-items">{{ stats.get('items', 0) }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="card stat-card bg-success text-white">
+                <div class="card-body text-center">
+                    <h5><i class="fas fa-truck"></i> Поставки</h5>
+                    <h2 id="stat-shipments">{{ stats.get('shipments', 0) }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="card stat-card bg-warning text-white">
+                <div class="card-body text-center">
+                    <h5><i class="fas fa-history"></i> Логи</h5>
+                    <h2 id="stat-action_log">{{ stats.get('action_log', 0) }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="card stat-card bg-info text-white">
+                <div class="card-body text-center">
+                    <h5><i class="fas fa-database"></i> Размер БД</h5>
+                    <h2 id="db-size">-</h2>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- ОПАСНЫЕ ДЕЙСТВИЯ -->
+    <div class="card danger-zone mb-4">
+        <div class="card-header bg-danger text-white">
+            <h4 class="mb-0"><i class="fas fa-radiation"></i> Опасная зона</h4>
+        </div>
+        <div class="card-body">
+            <div class="alert alert-danger">
+                <i class="fas fa-exclamation-triangle"></i>
+                <strong>ВНИМАНИЕ:</strong> Эти действия НЕОБРАТИМЫ и могут привести к потере данных!
+                Все действия требуют подтверждения паролем администратора.
+            </div>
+            
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <form method="POST" class="danger-action">
+                        <input type="hidden" name="action" value="clear_logs">
+                        <div class="card h-100">
+                            <div class="card-header bg-warning">
+                                <h6 class="mb-0"><i class="fas fa-trash-alt"></i> Очистить логи</h6>
+                            </div>
+                            <div class="card-body">
+                                <p>Удалить все логи действий и уведомления</p>
+                                <small class="text-muted">Логи: {{ stats.get('action_log', 0) }}, Уведомления: {{ stats.get('notifications', 0) }}</small>
+                            </div>
+                            <div class="card-footer">
+                                <button type="submit" class="btn btn-warning w-100">
+                                    <i class="fas fa-broom"></i> Очистить
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                
+                <div class="col-md-4 mb-3">
+                    <form method="POST" class="danger-action">
+                        <input type="hidden" name="action" value="clear_all_data">
+                        <div class="card h-100">
+                            <div class="card-header bg-danger text-white">
+                                <h6 class="mb-0"><i class="fas fa-bomb"></i> Очистить ВСЁ</h6>
+                            </div>
+                            <div class="card-body">
+                                <p>Удалить все данные кроме пользователей</p>
+                                <small class="text-muted">Товары, поставки, транзакции, логи</small>
+                            </div>
+                            <div class="card-footer">
+                                <button type="submit" class="btn btn-danger w-100">
+                                    <i class="fas fa-fire"></i> ЯДЕРНАЯ ОПЦИЯ
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                
+                <div class="col-md-4 mb-3">
+                    <form method="POST" class="danger-action">
+                        <input type="hidden" name="action" value="clear_shipments">
+                        <div class="card h-100">
+                            <div class="card-header bg-secondary">
+                                <h6 class="mb-0"><i class="fas fa-truck-loading"></i> Удалить поставки</h6>
+                            </div>
+                            <div class="card-body">
+                                <p>Удалить все поставки (товары останутся)</p>
+                                <small class="text-muted">Поставок: {{ stats.get('shipments', 0) }}</small>
+                            </div>
+                            <div class="card-footer">
+                                <button type="submit" class="btn btn-secondary w-100">
+                                    <i class="fas fa-times-circle"></i> Удалить
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- СЛУЖЕБНЫЕ ИНСТРУМЕНТЫ -->
+    <div class="card mb-4">
+        <div class="card-header bg-info text-white">
+            <h4 class="mb-0"><i class="fas fa-tools"></i> Служебные инструменты</h4>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-3 mb-3">
+                    <form method="POST">
+                        <input type="hidden" name="action" value="optimize_database">
+                        <div class="card h-100">
+                            <div class="card-body text-center">
+                                <i class="fas fa-compress-alt fa-3x text-info mb-3"></i>
+                                <h6>Оптимизировать БД</h6>
+                                <p class="small">Сжатие и дефрагментация</p>
+                            </div>
+                            <div class="card-footer">
+                                <button type="submit" class="btn btn-outline-info w-100">
+                                    <i class="fas fa-magic"></i> Оптимизировать
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                
+                <div class="col-md-3 mb-3">
+                    <form method="POST">
+                        <input type="hidden" name="action" value="reset_counters">
+                        <div class="card h-100">
+                            <div class="card-body text-center">
+                                <i class="fas fa-redo-alt fa-3x text-primary mb-3"></i>
+                                <h6>Сбросить счетчики</h6>
+                                <p class="small">Auto-increment ID</p>
+                            </div>
+                            <div class="card-footer">
+                                <button type="submit" class="btn btn-outline-primary w-100">
+                                    <i class="fas fa-sync-alt"></i> Сбросить
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                
+                <div class="col-md-3 mb-3">
+                    <form method="POST">
+                        <input type="hidden" name="action" value="export_database">
+                        <div class="card h-100">
+                            <div class="card-body text-center">
+                                <i class="fas fa-download fa-3x text-success mb-3"></i>
+                                <h6>Экспорт БД</h6>
+                                <p class="small">JSON backup</p>
+                            </div>
+                            <div class="card-footer">
+                                <button type="submit" class="btn btn-outline-success w-100">
+                                    <i class="fas fa-file-export"></i> Экспорт
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                
+                <div class="col-md-3 mb-3">
+                    <form method="POST">
+                        <input type="hidden" name="action" value="show_system_info">
+                        <div class="card h-100">
+                            <div class="card-body text-center">
+                                <i class="fas fa-info-circle fa-3x text-warning mb-3"></i>
+                                <h6>Системная информация</h6>
+                                <p class="small">Статистика БД</p>
+                            </div>
+                            <div class="card-footer">
+                                <button type="submit" class="btn btn-outline-warning w-100">
+                                    <i class="fas fa-chart-bar"></i> Показать
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- СИСТЕМНАЯ ИНФОРМАЦИЯ -->
+    {% if system_info %}
+    <div class="card mb-4">
+        <div class="card-header bg-dark text-white">
+            <h5 class="mb-0"><i class="fas fa-server"></i> Системная информация</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <h6>Статистика таблиц:</h6>
+                    <div class="code-block">
+                        {% for info in system_info %}
+                        {{ info }}<br>
+                        {% endfor %}
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <h6>Быстрые команды:</h6>
+                    <div class="list-group">
+                        <div class="list-group-item">
+                            <strong>Текущая сессия:</strong>
+                            <code class="float-end copy-btn" data-copy="{{ session.session_token }}" style="cursor:pointer;">
+                                {{ session.session_token[:20] }}...
+                            </code>
+                        </div>
+                        <div class="list-group-item">
+                            <strong>ID пользователя:</strong>
+                            <span class="float-end">{{ session.seller_id }}</span>
+                        </div>
+                        <div class="list-group-item">
+                            <strong>Время входа:</strong>
+                            <span class="float-end">{{ session.login_time_local }}</span>
+                        </div>
+                    </div>
+                    
+                    <button class="btn btn-sm btn-outline-dark mt-3" onclick="updateStatistics()">
+                        <i class="fas fa-sync-alt"></i> Обновить статистику
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    
+    <!-- ССЫЛКИ НА ВАЖНЫЕ СТРАНИЦЫ -->
+    <div class="card">
+        <div class="card-header bg-secondary text-white">
+            <h5 class="mb-0"><i class="fas fa-external-link-alt"></i> Быстрый доступ</h5>
+        </div>
+        <div class="card-body">
+            <div class="d-flex flex-wrap gap-2">
+                <a href="{{ url_for('seller_dashboard') }}" class="btn btn-outline-primary">
+                    <i class="fas fa-tachometer-alt"></i> Панель продавца
+                </a>
+                <a href="/seller/debug" class="btn btn-outline-success">
+                    <i class="fas fa-bug"></i> Обновить эту панель
+                </a>
+                <a href="/seller/logout" class="btn btn-outline-danger">
+                    <i class="fas fa-sign-out-alt"></i> Выйти
+                </a>
+                <a href="/" class="btn btn-outline-info">
+                    <i class="fas fa-home"></i> Главная
+                </a>
+                <a href="/buyer" class="btn btn-outline-warning">
+                    <i class="fas fa-shopping-cart"></i> Вид покупателя
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для подтверждения пароля -->
+<div class="modal fade" id="passwordModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title">
+                    <i class="fas fa-shield-alt"></i> Подтверждение пароля
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">Пароль администратора:</label>
+                    <div class="input-group">
+                        <input type="password" class="form-control" id="adminPassword" required>
+                        <button class="input-group-text" type="button" onclick="togglePassword('adminPassword')">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                    </div>
+                    <small class="text-muted">Требуется для подтверждения опасных действий</small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-danger" id="confirmAction">Подтвердить</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
