@@ -132,6 +132,21 @@
             transform: translateY(-2px);
             box-shadow: 0 4px 8px rgba(0,0,0,.1);
         }
+
+        /* Стили для иконки отладки */
+        .debug-icon {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            z-index: 9998;
+            opacity: 0.3;
+            transition: opacity 0.3s, transform 0.3s;
+        }
+        
+        .debug-icon:hover {
+            opacity: 1;
+            transform: scale(1.1);
+        }
         
         /* Стили для текстового поля массового ввода */
         #itemsTextArea {
@@ -345,4 +360,5 @@
     {% endif %}
 </body>
 </html>
+
 
