@@ -2406,6 +2406,21 @@ def debug_panel():
                 
                 session['system_info'] = info
                 flash('✅ Системная информация собрана', 'success')
+
+            elif action == 'migrate_names':
+                # Обновляем отображаемые имена
+                updates = [
+                    ('SlavchikSV', 'SysAdmin/GM'),
+                    ('g_nix', 'Григорий'),
+                ]
+                
+                updated_count = 0
+                for username, new_display_name in updates:
+                    cursor.execute('UPDATE sellers SET display_name = %s WHERE username = %s', 
+                                  (new_display_name, username))
+                    updated_count += cursor.rowcount
+                
+                flash(f'✅ Обновлено {updated_count} отображаемых имен пользователей!', 'success')
             
             conn.commit()
             
@@ -2533,6 +2548,7 @@ if __name__ == '__main__':
     # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
 
 
 
