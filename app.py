@@ -613,6 +613,10 @@ def process_single_device_login(seller, flask_request):
         
         # Создаем новую сессию
         session_token = secrets.token_hex(32)
+        now_utc = datetime.utcnow()
+        
+        # Сохраняем время входа в UTC для консистентности
+        login_time_utc = now_utc.strftime('%Y-%m-%d %H:%M:%S')
         
         cursor.execute('''
         INSERT INTO active_sessions (seller_id, session_token, ip_address, user_agent, login_time, last_activity)
@@ -622,13 +626,13 @@ def process_single_device_login(seller, flask_request):
             session_token, 
             flask_request.remote_addr, 
             flask_request.user_agent.string[:200],
-            datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'),
-            datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+            login_time_utc,
+            login_time_utc
         ))
         
         # Обновляем время последнего входа
         cursor.execute('UPDATE sellers SET last_login = %s WHERE id = %s',
-                      (datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'), seller['id']))
+                      (login_time_utc, seller['id']))
         
         conn.commit()
         
@@ -639,16 +643,18 @@ def process_single_device_login(seller, flask_request):
         session['display_name'] = seller.get('display_name') or seller['username']
         session['session_token'] = session_token
         
-        # Сохраняем время входа
-        login_time_utc = datetime.utcnow()
-        session['login_time_utc'] = login_time_utc.strftime('%Y-%m-%d %H:%M:%S')
-        session['login_time_local'] = utc_to_local(login_time_utc)
+        # Сохраняем время входа в UTC и локальное
+        session['login_time_utc'] = login_time_utc
         
-        # Логируем вход
-        log_action(seller['id'], 'login', 
-                  details=f'Вход с {flask_request.remote_addr}')
+        # Конвертируем UTC в локальное время для отображения
+        try:
+            utc_time = datetime.strptime(login_time_utc, '%Y-%m-%d %H:%M:%S')
+            local_time = utc_time + timedelta(hours=3)  # Минск UTC+3
+            session['login_time_local'] = local_time.strftime('%H:%M:%S')
+        except:
+            session['login_time_local'] = login_time_utc[11:16]  # Берем только часы:минуты
         
-        print(f"✅ Успешный вход: {seller['username']}")
+        print(f"✅ Успешный вход: {seller['username']} в {login_time_utc} UTC")
         
         return redirect(url_for('seller_dashboard'))
         
@@ -2115,6 +2121,7 @@ if __name__ == '__main__':
     # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
 
 
 
