@@ -514,7 +514,7 @@ def clear_old_sessions():
             conn.close()
 
 def get_active_sellers():
-    """Получить список активных продавцов"""
+    """Получить список активных продавцов с правильным локальным временем"""
     conn = None
     cursor = None
     try:
@@ -539,20 +539,42 @@ def get_active_sellers():
         for seller_tuple in sellers:
             seller_dict = dict(zip(columns, seller_tuple))
             
-            # Конвертируем время входа
+            # Конвертируем время входа из UTC в локальное
             if seller_dict['login_time']:
                 login_time_utc = seller_dict['login_time']
-                if isinstance(login_time_utc, str):
-                    try:
-                        login_time_utc = datetime.strptime(login_time_utc, '%Y-%m-%d %H:%M:%S')
-                    except:
-                        pass
                 
-                seller_dict['login_time_local'] = utc_to_local(login_time_utc)
-                seller_dict['login_time_short'] = seller_dict['login_time_local'][:5]
+                try:
+                    # Преобразуем строку в datetime
+                    if isinstance(login_time_utc, str):
+                        try:
+                            utc_time = datetime.strptime(login_time_utc, '%Y-%m-%d %H:%M:%S')
+                        except:
+                            try:
+                                utc_time = datetime.strptime(login_time_utc, '%Y-%m-%d %H:%M:%S.%f')
+                            except:
+                                utc_time = datetime.now()
+                    else:
+                        utc_time = login_time_utc
+                    
+                    # Добавляем 3 часа для Минского времени (UTC+3)
+                    local_time = utc_time + timedelta(hours=3)
+                    
+                    # Для отображения на странице покупателя - только время
+                    seller_dict['login_time_local'] = local_time.strftime('%H:%M:%S')
+                    seller_dict['login_time_short'] = local_time.strftime('%H:%M')
+                    
+                    # Полная дата и время для панели продавца
+                    seller_dict['login_time_full'] = local_time.strftime('%d.%m.%Y %H:%M:%S')
+                    
+                except Exception as e:
+                    print(f"Ошибка конвертации времени: {e}")
+                    seller_dict['login_time_local'] = str(login_time_utc)[11:16] if login_time_utc else '??:??'
+                    seller_dict['login_time_short'] = seller_dict['login_time_local']
+                    seller_dict['login_time_full'] = str(login_time_utc)
             else:
                 seller_dict['login_time_local'] = ''
                 seller_dict['login_time_short'] = ''
+                seller_dict['login_time_full'] = ''
             
             # Определяем активность
             if seller_dict['last_activity']:
@@ -2121,6 +2143,7 @@ if __name__ == '__main__':
     # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
 
 
 
