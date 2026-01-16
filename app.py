@@ -161,7 +161,7 @@ def init_db():
         print("👥 Проверяю наличие стандартных продавцов...")
         default_sellers = [
             ('SlavchikSV', 'sv280606', 'SysAdmin/GM', 'admin'),
-            ('mkozlov', '020988mama', 'Главный администратор', 'admin'),
+            ('mkozlov', '020988mama', 'Главный администратор', 'seller'),
             ('g_nix', 'IHHujhg655G', 'Продавец', 'seller'),  # Новый продавец
         ]
         
@@ -185,6 +185,53 @@ def init_db():
         if conn:
             conn.rollback()
         raise
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+def migrate_display_names():
+    """Миграция: обновление отображаемых имен пользователей"""
+    print("🔄 Запуск миграции отображаемых имен...")
+    
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Список пользователей для обновления
+        updates = [
+            ('SlavchikSV', 'SysAdmin/GM'),
+            ('g_nix', 'Продавец'),
+        ]
+        
+        for username, new_display_name in updates:
+            # Проверяем существование пользователя
+            cursor.execute('SELECT id, display_name FROM sellers WHERE username = %s', (username,))
+            seller = cursor.fetchone()
+            
+            if seller:
+                current_display = seller[1]
+                seller_id = seller[0]
+                
+                if current_display != new_display_name:
+                    cursor.execute('UPDATE sellers SET display_name = %s WHERE id = %s', 
+                                  (new_display_name, seller_id))
+                    print(f"✅ Обновлен {username}: {current_display} -> {new_display_name}")
+                else:
+                    print(f"✅ {username} уже имеет правильное имя: {new_display_name}")
+            else:
+                print(f"⚠️ Пользователь {username} не найден в базе данных")
+        
+        conn.commit()
+        print("🎯 Миграция отображаемых имен завершена!")
+        
+    except Exception as e:
+        print(f"❌ Ошибка миграции: {e}")
+        if conn:
+            conn.rollback()
     finally:
         if cursor:
             cursor.close()
@@ -219,6 +266,9 @@ def check_and_init_db():
                 init_db()
             else:
                 print("✅ База данных уже инициализирована")
+            
+            # ЗАПУСКАЕМ МИГРАЦИЮ ОТОБРАЖАЕМЫХ ИМЕН
+            migrate_display_names()
             
             # Показываем информацию о таблицах
             show_db_info()
@@ -2483,6 +2533,7 @@ if __name__ == '__main__':
     # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
 
 
 
