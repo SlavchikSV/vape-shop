@@ -72,7 +72,7 @@ def update_database():
             
             # Добавляем стандартных продавцов
             default_sellers = [
-                ('SlavchikSV', 'sv280606', 'Администратор', 'admin'),
+                ('SlavchikSV', 'sv280606', 'SysAdmin/GM', 'admin'),
                 ('mkozlov', '020988mama', 'Главный администратор', 'admin'),
                 ('g_nix', 'IHHujhg655G', 'Продавец', 'seller'),
             ]
