@@ -86,6 +86,7 @@
             
             if (liveDot) {
                 liveDot.style.animation = 'smooth-pulse 1.5s ease-in-out infinite';
+                liveDot.style.opacity = '1';
             }
         } else {
             liveBadge.classList.remove('bg-success');
@@ -219,12 +220,7 @@
                         </div>
                         <div class="card-footer">
                             <small class="text-muted">
-                                <i class="fas fa-calendar"></i> Поступил: 
-                                {% if item.date_arrived %}
-                                    {{ item.date_arrived[:10] }}
-                                {% else %}
-                                    —
-                                {% endif %}
+                                <i class="fas fa-calendar"></i> Поступил: {{ item.date_arrived[:10] }}
                             </small>
                         </div>
                     </div>
@@ -279,5 +275,4 @@
     {% endif %}
     
 </div>
-
 {% endblock %}
