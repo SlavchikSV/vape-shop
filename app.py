@@ -1952,6 +1952,14 @@ def update_item_price(item_id):
         conn = get_db_connection()
         cursor = conn.cursor()
         
+        # Сначала получаем текущую цену
+        cursor.execute('SELECT sell_price FROM items WHERE id = %s', (item_id,))
+        current_price = cursor.fetchone()
+        
+        if not current_price:
+            return jsonify({'error': 'Товар не найден'}), 404
+        
+        # Обновляем manual_price, сохраняя оригинальную цену в sell_price
         cursor.execute('''
         UPDATE items 
         SET manual_price = %s
@@ -1961,7 +1969,7 @@ def update_item_price(item_id):
         conn.commit()
         
         log_action(session['seller_id'], 'update_item_price', item_id,
-                  f'Цена изменена на {new_price} BYN')
+                  f'Цена изменена с {current_price[0]} на {new_price} BYN')
         
         return jsonify({'success': True})
         
@@ -2152,6 +2160,7 @@ if __name__ == '__main__':
     # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
 
 
 
