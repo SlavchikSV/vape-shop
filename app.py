@@ -1555,6 +1555,42 @@ def check_session():
         if conn:
             conn.close()
 
+@app.route('/seller/shipments/<int:shipment_id>')
+def get_shipment_info(shipment_id):
+    """Получить информацию о конкретной поставке"""
+    if not session.get('seller_logged_in'):
+        return jsonify({'error': 'Нет доступа'}), 401
+    
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT * FROM shipments 
+            WHERE id = %s
+        ''', (shipment_id,))
+        
+        shipment_tuple = cursor.fetchone()
+        
+        if not shipment_tuple:
+            return jsonify({'success': False, 'error': 'Поставка не найдена'})
+        
+        columns = [desc[0] for desc in cursor.description]
+        shipment_dict = dict(zip(columns, shipment_tuple))
+        
+        return jsonify({'success': True, 'shipments': [shipment_dict]})
+        
+    except Exception as e:
+        print(f"❌ Ошибка получения информации о поставке: {e}")
+        return jsonify({'success': False, 'error': str(e)})
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
 @app.route('/buyer/active_sellers')
 def buyer_active_sellers():
     """API для получения активных продавцов с правильным временем"""
@@ -2160,6 +2196,7 @@ if __name__ == '__main__':
     # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
 
 
 
