@@ -309,7 +309,9 @@ function displayShipments(shipments) {
         const statusClass = {
             'в пути': 'warning',
             'в наличии': 'success',
-            'завершена': 'secondary'
+            'завершена': 'secondary',
+            'продано': 'danger',
+            'частично продана': 'info'
         }[shipment.status] || 'info';
         
         const hasItems = shipment.total_items > 0;
@@ -317,8 +319,9 @@ function displayShipments(shipments) {
             `${shipment.total_items} товар(ов)` : 
             '<span class="text-danger">Нет товаров</span>';
         
-        // Получаем правильный номер поставки
-        const shipmentNumber = shipment.shipment_number || `SHIP-${String(shipment.id).padStart(3, '0')}`;
+        // Используем shipment_number из базы данных
+        const shipmentNumber = shipment.shipment_number || 
+                              (shipment.id ? `SHIP-${String(shipment.id).padStart(3, '0')}` : 'Без номера');
         
         html += `
         <div class="col-md-6 mb-3">
@@ -340,19 +343,21 @@ function displayShipments(shipments) {
                     
                     <div class="btn-group btn-group-sm mt-2 w-100">
                         <button class="btn btn-outline-primary" 
-                                onclick="showAddMoreItemsModal(${shipment.id}, '${shipmentNumber}')">
+                                onclick="showAddMoreItemsModal(${shipment.id}, '${shipmentNumber.replace(/'/g, "\\'")}')">
                             <i class="fas fa-plus"></i> Ещё товары
                         </button>
+                        ${shipment.status !== 'продано' && shipment.status !== 'завершена' ? `
                         <button class="btn btn-outline-warning" 
-                                onclick="showUpdateShipmentStatusModal(${shipment.id}, '${shipment.status}')">
+                                onclick="showUpdateShipmentStatusModal(${shipment.id}, '${shipment.status.replace(/'/g, "\\'")}')">
                             <i class="fas fa-sync"></i> Статус
                         </button>
+                        ` : ''}
                         <button class="btn btn-outline-info" 
-                                onclick="showShipmentItems(${shipment.id}, '${shipmentNumber}')">
+                                onclick="showShipmentItems(${shipment.id}, '${shipmentNumber.replace(/'/g, "\\'")}')">
                             <i class="fas fa-eye"></i> Просмотр
                         </button>
                         <button class="btn btn-outline-danger" 
-                                onclick="showDeleteShipmentModal(${shipment.id}, '${shipmentNumber}', ${shipment.total_items})">
+                                onclick="showDeleteShipmentModal(${shipment.id}, '${shipmentNumber.replace(/'/g, "\\'")}', ${shipment.total_items})">
                             <i class="fas fa-trash"></i>
                         </button>
                     </div>
