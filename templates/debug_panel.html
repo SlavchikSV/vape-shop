@@ -53,7 +53,7 @@ function updateStatistics() {
     fetch('/seller/debug/api/statistics')
         .then(response => response.json())
         .then(data => {
-            if (data.success) {
+            if (data && data.success) {
                 updateStatisticsDisplay(data.statistics);
             }
         })
@@ -63,6 +63,7 @@ function updateStatistics() {
 function updateStatisticsDisplay(stats) {
     // Обновляем счетчики в реальном времени
     for (const [table, data] of Object.entries(stats)) {
+        if (table === 'database_size') continue;
         const element = document.getElementById(`stat-${table}`);
         if (element) {
             const current = parseInt(element.textContent) || 0;
@@ -83,10 +84,12 @@ function updateStatisticsDisplay(stats) {
 
 function animateCounter(element, target) {
     let current = parseInt(element.textContent) || 0;
+    if (current === target) return;
+    
     const increment = target > current ? 1 : -1;
     const steps = Math.abs(target - current);
     const duration = 500;
-    const stepTime = duration / steps;
+    const stepTime = Math.max(duration / steps, 20);
     
     let step = 0;
     const timer = setInterval(() => {
@@ -138,9 +141,9 @@ function togglePassword(inputId) {
 
 // Запуск при загрузке
 document.addEventListener('DOMContentLoaded', function() {
-    // Обновляем статистику каждые 10 секунд
+    // Обновляем статистику каждые 30 секунд
     updateStatistics();
-    setInterval(updateStatistics, 10000);
+    setInterval(updateStatistics, 30000);
     
     // Добавляем обработчики для опасных действий
     document.querySelectorAll('.danger-action').forEach(form => {
@@ -196,6 +199,17 @@ document.addEventListener('DOMContentLoaded', function() {
 {% endif %}
 
 <div class="container mt-4">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }} alert-dismissible fade show">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+    
     <div class="card debug-panel text-white mb-4">
         <div class="card-body text-center">
             <h1 class="display-4">
@@ -259,7 +273,7 @@ document.addEventListener('DOMContentLoaded', function() {
             
             <div class="row">
                 <div class="col-md-4 mb-3">
-                    <form method="POST" class="danger-action" onsubmit="return confirmAction(this, 'clear_logs')">
+                    <form method="POST" class="danger-action">
                         <input type="hidden" name="action" value="clear_logs">
                         <div class="card h-100">
                             <div class="card-header bg-warning">
@@ -268,10 +282,6 @@ document.addEventListener('DOMContentLoaded', function() {
                             <div class="card-body">
                                 <p>Удалить все логи действий и уведомления</p>
                                 <small class="text-muted">Логи: {{ stats.get('action_log', 0) }}, Уведомления: {{ stats.get('notifications', 0) }}</small>
-                                <div class="mt-2 password-field" style="display: none;">
-                                    <label class="form-label">Пароль администратора:</label>
-                                    <input type="password" class="form-control" name="password" required>
-                                </div>
                             </div>
                             <div class="card-footer">
                                 <button type="submit" class="btn btn-warning w-100">
@@ -283,7 +293,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>
                 
                 <div class="col-md-4 mb-3">
-                    <form method="POST" class="danger-action" onsubmit="return confirmAction(this, 'clear_all_data')">
+                    <form method="POST" class="danger-action">
                         <input type="hidden" name="action" value="clear_all_data">
                         <div class="card h-100">
                             <div class="card-header bg-danger text-white">
@@ -292,10 +302,6 @@ document.addEventListener('DOMContentLoaded', function() {
                             <div class="card-body">
                                 <p>Удалить все данные кроме пользователей</p>
                                 <small class="text-muted">Товары, поставки, транзакции, логи</small>
-                                <div class="mt-2 password-field" style="display: none;">
-                                    <label class="form-label">Пароль администратора:</label>
-                                    <input type="password" class="form-control" name="password" required>
-                                </div>
                             </div>
                             <div class="card-footer">
                                 <button type="submit" class="btn btn-danger w-100">
@@ -307,7 +313,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>
                 
                 <div class="col-md-4 mb-3">
-                    <form method="POST" class="danger-action" onsubmit="return confirmAction(this, 'clear_shipments')">
+                    <form method="POST" class="danger-action">
                         <input type="hidden" name="action" value="clear_shipments">
                         <div class="card h-100">
                             <div class="card-header bg-secondary">
@@ -316,10 +322,6 @@ document.addEventListener('DOMContentLoaded', function() {
                             <div class="card-body">
                                 <p>Удалить все поставки (товары останутся)</p>
                                 <small class="text-muted">Поставок: {{ stats.get('shipments', 0) }}</small>
-                                <div class="mt-2 password-field" style="display: none;">
-                                    <label class="form-label">Пароль администратора:</label>
-                                    <input type="password" class="form-control" name="password" required>
-                                </div>
                             </div>
                             <div class="card-footer">
                                 <button type="submit" class="btn btn-secondary w-100">
@@ -347,7 +349,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             <div class="card-body text-center">
                                 <i class="fas fa-compress-alt fa-3x text-info mb-3"></i>
                                 <h6>Оптимизировать БД</h6>
-                                <p class="small">Сжатие и дефрагментация</p>
+                                <p class="small">Оптимизация индексов</p>
                             </div>
                             <div class="card-footer">
                                 <button type="submit" class="btn btn-outline-info w-100">
@@ -481,36 +483,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 <a href="/buyer" class="btn btn-outline-warning">
                     <i class="fas fa-shopping-cart"></i> Вид покупателя
                 </a>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Модальное окно для подтверждения пароля -->
-<div class="modal fade" id="passwordModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header bg-danger text-white">
-                <h5 class="modal-title">
-                    <i class="fas fa-shield-alt"></i> Подтверждение пароля
-                </h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <div class="mb-3">
-                    <label class="form-label">Пароль администратора:</label>
-                    <div class="input-group">
-                        <input type="password" class="form-control" id="adminPassword" required>
-                        <button class="input-group-text" type="button" onclick="togglePassword('adminPassword')">
-                            <i class="fas fa-eye"></i>
-                        </button>
-                    </div>
-                    <small class="text-muted">Требуется для подтверждения опасных действий</small>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
-                <button type="button" class="btn btn-danger" id="confirmAction">Подтвердить</button>
             </div>
         </div>
     </div>
