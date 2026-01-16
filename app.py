@@ -2187,6 +2187,211 @@ def delete_shipment(shipment_id):
         if conn:
             conn.close()
 
+# ==================== ПАНЕЛЬ ОТЛАДКИ И АДМИНИСТРИРОВАНИЯ ====================
+
+@app.route('/seller/debug', methods=['GET', 'POST'])
+def debug_panel():
+    """Скрытая панель отладки только для SlavchikSV"""
+    if not session.get('seller_logged_in'):
+        return redirect(url_for('seller_login'))
+    
+    if session.get('seller_username') != 'SlavchikSV':
+        flash('Доступ запрещен. Только для администратора.', 'danger')
+        return redirect(url_for('seller_dashboard'))
+    
+    conn = None
+    cursor = None
+    
+    if request.method == 'POST':
+        action = request.form.get('action')
+        password = request.form.get('password')
+        
+        # Проверяем пароль администратора
+        admin = get_seller_by_username('SlavchikSV')
+        if not admin or not bcrypt.check_password_hash(admin['password_hash'], password):
+            flash('Неверный пароль администратора', 'danger')
+            return redirect(url_for('debug_panel'))
+        
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            if action == 'clear_logs':
+                cursor.execute('DELETE FROM action_log')
+                cursor.execute('DELETE FROM notifications')
+                cursor.execute("VACUUM")
+                flash('✅ Логи и уведомления успешно очищены!', 'success')
+                
+            elif action == 'clear_all_data':
+                # Сохраняем пользователей
+                cursor.execute('SELECT * FROM sellers')
+                sellers_backup = cursor.fetchall()
+                
+                # Удаляем все данные кроме пользователей
+                tables = ['items', 'transactions', 'action_log', 'notifications', 'shipments', 'active_sessions']
+                for table in tables:
+                    cursor.execute(f'DELETE FROM {table}')
+                
+                # Обнуляем автоинкременты
+                cursor.execute("DELETE FROM sqlite_sequence WHERE name IN ('items', 'transactions', 'action_log', 'notifications', 'shipments', 'active_sessions')")
+                
+                cursor.execute("VACUUM")
+                flash('✅ Все данные (кроме пользователей) успешно очищены! База данных как новая.', 'success')
+                
+            elif action == 'clear_shipments':
+                cursor.execute('DELETE FROM shipments')
+                cursor.execute('UPDATE items SET shipment_id = NULL')
+                cursor.execute("DELETE FROM sqlite_sequence WHERE name = 'shipments'")
+                cursor.execute("VACUUM")
+                flash('✅ Все поставки успешно удалены!', 'success')
+                
+            elif action == 'reset_counters':
+                # Сброс счетчиков автоинкремента
+                cursor.execute("DELETE FROM sqlite_sequence")
+                cursor.execute("VACUUM")
+                flash('✅ Счетчики автоинкремента сброшены!', 'success')
+                
+            elif action == 'export_database':
+                # Экспорт базы данных в JSON
+                from datetime import datetime
+                import json
+                
+                export_data = {
+                    'export_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'tables': {}
+                }
+                
+                # Экспортируем все таблицы
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                tables = cursor.fetchall()
+                
+                for table in tables:
+                    table_name = table[0]
+                    cursor.execute(f'SELECT * FROM {table_name}')
+                    rows = cursor.fetchall()
+                    columns = [desc[0] for desc in cursor.description]
+                    
+                    table_data = []
+                    for row in rows:
+                        table_data.append(dict(zip(columns, row)))
+                    
+                    export_data['tables'][table_name] = table_data
+                
+                # Сохраняем в файл
+                export_filename = f'db_backup_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json'
+                with open(export_filename, 'w', encoding='utf-8') as f:
+                    json.dump(export_data, f, ensure_ascii=False, indent=2)
+                
+                flash(f'✅ База данных экспортирована в файл: {export_filename}', 'success')
+                
+            elif action == 'optimize_database':
+                cursor.execute("VACUUM")
+                cursor.execute("ANALYZE")
+                flash('✅ База данных оптимизирована и сжата!', 'success')
+                
+            elif action == 'show_system_info':
+                # Собираем системную информацию
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                tables = cursor.fetchall()
+                
+                info = []
+                for table in tables:
+                    cursor.execute(f'SELECT COUNT(*) FROM {table[0]}')
+                    count = cursor.fetchone()[0]
+                    info.append(f"{table[0]}: {count} записей")
+                
+                session['system_info'] = info
+                flash('✅ Системная информация собрана', 'success')
+            
+            conn.commit()
+            
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            flash(f'❌ Ошибка выполнения операции: {str(e)}', 'danger')
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
+    
+    # Получаем статистику базы данных
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    stats = {}
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    tables = cursor.fetchall()
+    
+    for table in tables:
+        cursor.execute(f'SELECT COUNT(*) FROM {table[0]}')
+        count = cursor.fetchone()[0]
+        stats[table[0]] = count
+    
+    cursor.close()
+    conn.close()
+    
+    system_info = session.pop('system_info', [])
+    
+    return render_template('debug_panel.html', stats=stats, system_info=system_info)
+
+@app.route('/seller/debug/api/statistics')
+def debug_statistics():
+    """API для получения статистики базы данных"""
+    if not session.get('seller_logged_in') or session.get('seller_username') != 'SlavchikSV':
+        return jsonify({'error': 'Доступ запрещен'}), 403
+    
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        tables = cursor.fetchall()
+        
+        statistics = {}
+        for table in tables:
+            cursor.execute(f'SELECT COUNT(*) FROM {table[0]}')
+            count = cursor.fetchone()[0]
+            
+            # Для больших таблиц получаем дополнительную информацию
+            if table[0] in ['items', 'action_log', 'transactions']:
+                cursor.execute(f'''
+                    SELECT 
+                        MIN(created_at) as oldest,
+                        MAX(created_at) as newest
+                    FROM {table[0]}
+                    WHERE created_at IS NOT NULL
+                ''')
+                date_info = cursor.fetchone()
+                statistics[table[0]] = {
+                    'count': count,
+                    'oldest': date_info[0] if date_info[0] else 'N/A',
+                    'newest': date_info[1] if date_info[1] else 'N/A'
+                }
+            else:
+                statistics[table[0]] = {'count': count}
+        
+        # Размер базы данных
+        cursor.execute("SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()")
+        db_size = cursor.fetchone()[0]
+        
+        statistics['database_size'] = {
+            'bytes': db_size,
+            'mb': round(db_size / (1024 * 1024), 2)
+        }
+        
+        return jsonify({'success': True, 'statistics': statistics})
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
 # ==================== ЗАПУСК СЕРВЕРА ====================
 
 if __name__ == '__main__':
@@ -2196,6 +2401,7 @@ if __name__ == '__main__':
     # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
 
 
 
