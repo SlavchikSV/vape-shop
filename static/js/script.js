@@ -171,13 +171,20 @@ document.addEventListener('DOMContentLoaded', function() {
 
 });
 
+// ==================== ОТЛАДКА И АДМИНИСТРИРОВАНИЕ ====================
+
 // Горячие клавиши для администратора
 document.addEventListener('keydown', function(e) {
     // Ctrl+Shift+D - панель отладки
     if (e.ctrlKey && e.shiftKey && e.key === 'D') {
         e.preventDefault();
-        if (confirm('Перейти в панель отладки?')) {
+        
+        // Проверяем, является ли пользователь администратором
+        const sellerUsername = '{{ session.get("seller_username", "") }}';
+        if (sellerUsername === 'SlavchikSV') {
             window.location.href = '/seller/debug';
+        } else {
+            console.log('Панель отладки доступна только администратору SlavchikSV');
         }
     }
     
@@ -187,4 +194,105 @@ document.addEventListener('keydown', function(e) {
         console.log('✅ Консоль очищена');
     }
 });
+
+// Функция для проверки прав администратора
+function checkAdminAccess() {
+    // Проверяем, является ли текущий пользователь администратором
+    const sellerUsername = '{{ session.get("seller_username", "") }}';
+    return sellerUsername === 'SlavchikSV';
+}
+
+// Добавляем иконку отладки для администратора
+function addDebugIconIfAdmin() {
+    if (checkAdminAccess()) {
+        // Создаем стили для иконки
+        const style = document.createElement('style');
+        style.textContent = `
+            .debug-icon {
+                position: fixed;
+                bottom: 20px;
+                left: 20px;
+                z-index: 9998;
+                opacity: 0.3;
+                transition: opacity 0.3s, transform 0.3s;
+            }
+            
+            .debug-icon:hover {
+                opacity: 1;
+                transform: scale(1.1);
+            }
+        `;
+        document.head.appendChild(style);
+        
+        // Создаем иконку
+        const debugIcon = document.createElement('a');
+        debugIcon.href = '/seller/debug';
+        debugIcon.className = 'debug-icon';
+        debugIcon.title = 'Панель отладки (Ctrl+Shift+D)';
+        debugIcon.innerHTML = `
+            <div class="bg-danger text-white rounded-circle p-3 shadow-lg">
+                <i class="fas fa-bug fa-2x"></i>
+            </div>
+        `;
+        
+        // Добавляем иконку в документ
+        document.body.appendChild(debugIcon);
+    }
+}
+
+// Добавляем иконку отладки при загрузке страницы
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', addDebugIconIfAdmin);
+} else {
+    addDebugIconIfAdmin();
+}
+
+// Функции для отладки
+if (checkAdminAccess()) {
+    // Добавляем глобальную переменную debug с полезными функциями
+    window.debug = {
+        // Очистить логи
+        clearLogs: function() {
+            if (confirm('Очистить все логи действий и уведомления?')) {
+                const password = prompt('Введите пароль администратора:');
+                if (password) {
+                    const formData = new FormData();
+                    formData.append('action', 'clear_logs');
+                    formData.append('password', password);
+                    
+                    fetch('/seller/debug', {
+                        method: 'POST',
+                        body: formData
+                    }).then(response => {
+                        if (response.ok) {
+                            location.reload();
+                        }
+                    });
+                }
+            }
+        },
+        
+        // Получить статистику БД
+        getDbStats: function() {
+            fetch('/seller/debug/api/statistics')
+                .then(response => response.json())
+                .then(data => {
+                    console.log('📊 Статистика базы данных:', data.statistics);
+                });
+        },
+        
+        // Проверить активные сессии
+        checkSessions: function() {
+            fetch('/seller/active_sellers')
+                .then(response => response.json())
+                .then(data => {
+                    console.log('👥 Активные сессии:', data.active_sellers);
+                });
+        }
+    };
+    
+    console.log('🔧 Панель отладки доступна. Используйте Ctrl+Shift+D для открытия.');
+    console.log('📋 Доступные команды: debug.clearLogs(), debug.getDbStats(), debug.checkSessions()');
+}
+
 
