@@ -1520,17 +1520,18 @@ def check_session():
 
 @app.route('/buyer/active_sellers')
 def buyer_active_sellers():
-    """API для получения активных продавцов"""
+    """API для получения активных продавцов с правильным временем"""
     conn = None
     cursor = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         
+        # Берем продавцов активных в последние 10 минут
         ten_minutes_ago = (datetime.utcnow() - timedelta(minutes=10)).strftime('%Y-%m-%d %H:%M:%S')
         
         cursor.execute('''
-            SELECT s.id, s.username, s.display_name, a.login_time
+            SELECT s.id, s.username, s.display_name, a.login_time, a.last_activity
             FROM active_sessions a
             JOIN sellers s ON a.seller_id = s.id
             WHERE a.is_active = TRUE 
@@ -1543,21 +1544,45 @@ def buyer_active_sellers():
         simplified_sellers = []
         for seller in sellers:
             try:
-                login_time = seller[3]
-                if isinstance(login_time, str):
-                    utc_time = datetime.strptime(login_time, '%Y-%m-%d %H:%M:%S')
+                login_time = seller[3]  # login_time в UTC
+                if login_time:
+                    # Преобразуем UTC время в локальное (Минск UTC+3)
+                    if isinstance(login_time, str):
+                        try:
+                            # Пробуем разные форматы
+                            formats = [
+                                '%Y-%m-%d %H:%M:%S',
+                                '%Y-%m-%d %H:%M:%S.%f',
+                                '%H:%M:%S'
+                            ]
+                            for fmt in formats:
+                                try:
+                                    utc_time = datetime.strptime(login_time, fmt)
+                                    break
+                                except:
+                                    continue
+                            else:
+                                utc_time = datetime.now()
+                        except:
+                            utc_time = datetime.now()
+                    else:
+                        utc_time = login_time
+                    
+                    # Добавляем 3 часа для Минского времени
                     local_time = utc_time + timedelta(hours=3)
                     login_time_short = local_time.strftime('%H:%M')
                 else:
-                    login_time_short = login_time.strftime('%H:%M')
-            except:
+                    login_time_short = '??:??'
+            except Exception as e:
+                print(f"Ошибка преобразования времени: {e}")
                 login_time_short = seller[3][11:16] if seller[3] and len(str(seller[3])) > 16 else '??:??'
             
             simplified_sellers.append({
                 'id': seller[0],
                 'username': seller[1],
                 'display_name': seller[2] or seller[1],
-                'login_time_short': login_time_short
+                'login_time_short': login_time_short,
+                'login_time_full': login_time_short
             })
         
         return jsonify({'active_sellers': simplified_sellers})
@@ -2090,6 +2115,7 @@ if __name__ == '__main__':
     # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
 
 
 
