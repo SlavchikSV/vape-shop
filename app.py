@@ -721,11 +721,11 @@ def buyer():
             SELECT 
                 id, 
                 name, 
-                COALESCE(manual_price, sell_price) as display_price,  -- Используем manual_price если есть
-                status, 
-                date_arrived,
+                sell_price, 
                 manual_price,
-                sell_price
+                COALESCE(manual_price, sell_price) as display_price,
+                status, 
+                date_arrived
             FROM items 
             WHERE status IN ('в наличии', 'в пути')
             ORDER BY 
@@ -744,8 +744,8 @@ def buyer():
         items_list = []
         for item_tuple in items:
             item_dict = dict(zip(columns, item_tuple))
-            # Используем display_price для отображения
-            item_dict['sell_price'] = item_dict['display_price']
+            # Для отображения используем manual_price если он есть, иначе sell_price
+            item_dict['display_price'] = item_dict['manual_price'] or item_dict['sell_price']
             items_list.append(item_dict)
         
         in_stock = [item for item in items_list if item['status'] == 'в наличии']
@@ -2152,6 +2152,7 @@ if __name__ == '__main__':
     # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
 
 
 
