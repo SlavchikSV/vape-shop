@@ -43,6 +43,18 @@
     .stat-card:hover {
         transform: translateY(-5px);
     }
+
+    /* В стилях добавьте: */
+    .text-purple { color: #6f42c1; }
+    .btn-outline-purple { 
+        border-color: #6f42c1; 
+        color: #6f42c1; 
+    }
+    
+    .btn-outline-purple:hover { 
+        background-color: #6f42c1; 
+        color: white; 
+    }
 </style>
 {% endblock %}
 
@@ -390,6 +402,24 @@ document.addEventListener('DOMContentLoaded', function() {
                             <div class="card-footer">
                                 <button type="submit" class="btn btn-outline-success w-100">
                                     <i class="fas fa-file-export"></i> Экспорт
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="col-md-3 mb-3">
+                    <form method="POST" onsubmit="return confirm('Обновить отображаемые имена пользователей?')">
+                        <input type="hidden" name="action" value="migrate_names">
+                        <div class="card h-100">
+                            <div class="card-body text-center">
+                                <i class="fas fa-user-edit fa-3x text-purple mb-3"></i>
+                                <h6>Обновить имена</h6>
+                                <p class="small">SlavchikSV → SysAdmin/GM<br>g_nix → Григорий</p>
+                            </div>
+                            <div class="card-footer">
+                                <button type="submit" class="btn btn-outline-purple w-100">
+                                    <i class="fas fa-sync-alt"></i> Мигрировать
                                 </button>
                             </div>
                         </div>
