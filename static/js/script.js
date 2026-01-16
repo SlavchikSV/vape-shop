@@ -170,3 +170,21 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
 });
+
+// Горячие клавиши для администратора
+document.addEventListener('keydown', function(e) {
+    // Ctrl+Shift+D - панель отладки
+    if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+        e.preventDefault();
+        if (confirm('Перейти в панель отладки?')) {
+            window.location.href = '/seller/debug';
+        }
+    }
+    
+    // Ctrl+Shift+L - очистить консоль (для разработки)
+    if (e.ctrlKey && e.shiftKey && e.key === 'L') {
+        console.clear();
+        console.log('✅ Консоль очищена');
+    }
+});
+
