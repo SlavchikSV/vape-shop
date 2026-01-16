@@ -2189,8 +2189,6 @@ def delete_shipment(shipment_id):
 
 # ==================== ПАНЕЛЬ ОТЛАДКИ И АДМИНИСТРИРОВАНИЯ ====================
 
-# ==================== ПАНЕЛЬ ОТЛАДКИ И АДМИНИСТРИРОВАНИЯ ====================
-
 @app.route('/seller/debug', methods=['GET', 'POST'])
 def debug_panel():
     """Скрытая панель отладки только для SlavchikSV"""
@@ -2412,6 +2410,7 @@ def debug_statistics():
         conn = get_db_connection()
         cursor = conn.cursor()
         
+        # Получаем список таблиц для PostgreSQL
         cursor.execute("""
             SELECT table_name 
             FROM information_schema.tables 
@@ -2437,23 +2436,32 @@ def debug_statistics():
                     WHERE created_at IS NOT NULL
                 """)
                 date_info = cursor.fetchone()
-                statistics[table_name] = {
-                    'count': count,
-                    'oldest': date_info[0].strftime('%Y-%m-%d %H:%M:%S') if date_info and date_info[0] else 'N/A',
-                    'newest': date_info[1].strftime('%Y-%m-%d %H:%M:%S') if date_info and date_info[1] else 'N/A'
-                }
+                if date_info and date_info[0]:
+                    statistics[table_name] = {
+                        'count': count,
+                        'oldest': date_info[0].strftime('%Y-%m-%d %H:%M:%S'),
+                        'newest': date_info[1].strftime('%Y-%m-%d %H:%M:%S') if date_info[1] else 'N/A'
+                    }
+                else:
+                    statistics[table_name] = {'count': count}
             else:
                 statistics[table_name] = {'count': count}
         
         # Размер базы данных для PostgreSQL
-        cursor.execute("SELECT pg_database_size(current_database())")
-        db_size_bytes = cursor.fetchone()[0]
-        db_size_mb = round(db_size_bytes / (1024 * 1024), 2)
-        
-        statistics['database_size'] = {
-            'bytes': db_size_bytes,
-            'mb': db_size_mb
-        }
+        try:
+            cursor.execute("SELECT pg_database_size(current_database())")
+            db_size_bytes = cursor.fetchone()[0]
+            db_size_mb = round(db_size_bytes / (1024 * 1024), 2)
+            
+            statistics['database_size'] = {
+                'bytes': db_size_bytes,
+                'mb': db_size_mb
+            }
+        except:
+            statistics['database_size'] = {
+                'bytes': 0,
+                'mb': 0
+            }
         
         return jsonify({'success': True, 'statistics': statistics})
         
@@ -2475,6 +2483,7 @@ if __name__ == '__main__':
     # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
 
 
 
