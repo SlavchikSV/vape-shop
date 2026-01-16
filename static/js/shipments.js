@@ -592,11 +592,11 @@ function addMoreItemsToShipment(modalId) {
     
     let hasErrors = false;
     itemRows.forEach((row, index) => {
-        // Исправляем получение элементов
         const nameInput = row.querySelector('input[type="text"]');
-        const numberInputs = row.querySelectorAll('input[type="number"]');
-        const costInput = numberInputs[0];
-        const priceInput = numberInputs[1];
+        const costInput = row.querySelector('input[type="number"][class*="item-cost"]') || 
+                          row.querySelectorAll('input[type="number"]')[0];
+        const priceInput = row.querySelector('input[type="number"][class*="item-price"]') || 
+                           row.querySelectorAll('input[type="number"]')[1];
         
         // Проверяем заполненность полей
         if (!nameInput || !nameInput.value.trim()) {
@@ -667,6 +667,10 @@ function addMoreItemsToShipment(modalId) {
         })
         .then(response => {
             if (!response.ok) {
+                // Если 404, возможно, проблема с маршрутом
+                if (response.status === 404) {
+                    throw new Error('Маршрут не найден. Проверьте endpoint API.');
+                }
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
             return response.json();
@@ -690,7 +694,14 @@ function addMoreItemsToShipment(modalId) {
         .catch(error => {
             hideLoading();
             console.error('Ошибка добавления товаров:', error);
-            showToast('Ошибка: ' + error.message, 'danger');
+            
+            // Детализированное сообщение об ошибке
+            let errorMessage = error.message;
+            if (error.message.includes('404')) {
+                errorMessage = 'Маршрут API не найден. Пожалуйста, проверьте конфигурацию сервера.';
+            }
+            
+            showToast('Ошибка: ' + errorMessage, 'danger');
         });
 }
 
