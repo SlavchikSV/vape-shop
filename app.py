@@ -2189,6 +2189,8 @@ def delete_shipment(shipment_id):
 
 # ==================== ПАНЕЛЬ ОТЛАДКИ И АДМИНИСТРИРОВАНИЯ ====================
 
+# ==================== ПАНЕЛЬ ОТЛАДКИ И АДМИНИСТРИРОВАНИЯ ====================
+
 @app.route('/seller/debug', methods=['GET', 'POST'])
 def debug_panel():
     """Скрытая панель отладки только для SlavchikSV"""
@@ -2219,36 +2221,59 @@ def debug_panel():
             if action == 'clear_logs':
                 cursor.execute('DELETE FROM action_log')
                 cursor.execute('DELETE FROM notifications')
-                cursor.execute("VACUUM")
                 flash('✅ Логи и уведомления успешно очищены!', 'success')
                 
             elif action == 'clear_all_data':
-                # Сохраняем пользователей
-                cursor.execute('SELECT * FROM sellers')
-                sellers_backup = cursor.fetchall()
+                # Сохраняем пользователей - удаляем все остальное
+                cursor.execute('DELETE FROM items')
+                cursor.execute('DELETE FROM transactions')
+                cursor.execute('DELETE FROM action_log')
+                cursor.execute('DELETE FROM notifications')
+                cursor.execute('DELETE FROM shipments')
+                cursor.execute('DELETE FROM active_sessions')
                 
-                # Удаляем все данные кроме пользователей
-                tables = ['items', 'transactions', 'action_log', 'notifications', 'shipments', 'active_sessions']
-                for table in tables:
-                    cursor.execute(f'DELETE FROM {table}')
+                # Сбрасываем последовательности (для PostgreSQL)
+                sequences = [
+                    'items_id_seq',
+                    'transactions_tx_id_seq',
+                    'action_log_id_seq',
+                    'notifications_id_seq',
+                    'shipments_id_seq',
+                    'active_sessions_id_seq'
+                ]
                 
-                # Обнуляем автоинкременты
-                cursor.execute("DELETE FROM sqlite_sequence WHERE name IN ('items', 'transactions', 'action_log', 'notifications', 'shipments', 'active_sessions')")
+                for seq in sequences:
+                    try:
+                        cursor.execute(f"ALTER SEQUENCE {seq} RESTART WITH 1")
+                    except:
+                        # Игнорируем ошибки если последовательности нет
+                        pass
                 
-                cursor.execute("VACUUM")
                 flash('✅ Все данные (кроме пользователей) успешно очищены! База данных как новая.', 'success')
                 
             elif action == 'clear_shipments':
                 cursor.execute('DELETE FROM shipments')
                 cursor.execute('UPDATE items SET shipment_id = NULL')
-                cursor.execute("DELETE FROM sqlite_sequence WHERE name = 'shipments'")
-                cursor.execute("VACUUM")
                 flash('✅ Все поставки успешно удалены!', 'success')
                 
             elif action == 'reset_counters':
-                # Сброс счетчиков автоинкремента
-                cursor.execute("DELETE FROM sqlite_sequence")
-                cursor.execute("VACUUM")
+                # Сброс счетчиков автоинкремента для PostgreSQL
+                sequences = [
+                    'items_id_seq',
+                    'transactions_tx_id_seq',
+                    'action_log_id_seq',
+                    'notifications_id_seq',
+                    'shipments_id_seq',
+                    'active_sessions_id_seq',
+                    'sellers_id_seq'
+                ]
+                
+                for seq in sequences:
+                    try:
+                        cursor.execute(f"ALTER SEQUENCE {seq} RESTART WITH 1")
+                    except:
+                        pass
+                
                 flash('✅ Счетчики автоинкремента сброшены!', 'success')
                 
             elif action == 'export_database':
@@ -2261,37 +2286,60 @@ def debug_panel():
                     'tables': {}
                 }
                 
-                # Экспортируем все таблицы
-                cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                # Получаем список таблиц
+                cursor.execute("""
+                    SELECT table_name 
+                    FROM information_schema.tables 
+                    WHERE table_schema = 'public' 
+                    AND table_type = 'BASE TABLE'
+                """)
                 tables = cursor.fetchall()
                 
                 for table in tables:
                     table_name = table[0]
                     cursor.execute(f'SELECT * FROM {table_name}')
                     rows = cursor.fetchall()
-                    columns = [desc[0] for desc in cursor.description]
+                    
+                    # Получаем названия колонок
+                    col_names = [desc[0] for desc in cursor.description]
                     
                     table_data = []
                     for row in rows:
-                        table_data.append(dict(zip(columns, row)))
+                        # Преобразуем строки в словари
+                        row_dict = {}
+                        for i, col in enumerate(col_names):
+                            value = row[i]
+                            # Преобразуем datetime в строку
+                            if isinstance(value, datetime):
+                                value = value.strftime('%Y-%m-%d %H:%M:%S')
+                            elif value is None:
+                                value = None
+                            row_dict[col] = value
+                        table_data.append(row_dict)
                     
                     export_data['tables'][table_name] = table_data
                 
                 # Сохраняем в файл
                 export_filename = f'db_backup_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json'
                 with open(export_filename, 'w', encoding='utf-8') as f:
-                    json.dump(export_data, f, ensure_ascii=False, indent=2)
+                    json.dump(export_data, f, ensure_ascii=False, indent=2, default=str)
                 
                 flash(f'✅ База данных экспортирована в файл: {export_filename}', 'success')
                 
             elif action == 'optimize_database':
-                cursor.execute("VACUUM")
-                cursor.execute("ANALYZE")
+                # Для PostgreSQL используем REINDEX вместо VACUUM
+                cursor.execute('REINDEX DATABASE shop')
                 flash('✅ База данных оптимизирована и сжата!', 'success')
                 
             elif action == 'show_system_info':
-                # Собираем системную информацию
-                cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                # Собираем системную информацию для PostgreSQL
+                cursor.execute("""
+                    SELECT table_name 
+                    FROM information_schema.tables 
+                    WHERE table_schema = 'public' 
+                    AND table_type = 'BASE TABLE'
+                    ORDER BY table_name
+                """)
                 tables = cursor.fetchall()
                 
                 info = []
@@ -2299,6 +2347,14 @@ def debug_panel():
                     cursor.execute(f'SELECT COUNT(*) FROM {table[0]}')
                     count = cursor.fetchone()[0]
                     info.append(f"{table[0]}: {count} записей")
+                
+                # Размер базы данных
+                cursor.execute("""
+                    SELECT pg_database_size(current_database())
+                """)
+                db_size_bytes = cursor.fetchone()[0]
+                db_size_mb = round(db_size_bytes / (1024 * 1024), 2)
+                info.append(f"Размер БД: {db_size_mb} MB")
                 
                 session['system_info'] = info
                 flash('✅ Системная информация собрана', 'success')
@@ -2309,18 +2365,27 @@ def debug_panel():
             if conn:
                 conn.rollback()
             flash(f'❌ Ошибка выполнения операции: {str(e)}', 'danger')
+            print(f"❌ Ошибка в debug_panel: {e}")
         finally:
             if cursor:
                 cursor.close()
             if conn:
                 conn.close()
     
-    # Получаем статистику базы данных
+    # Получаем статистику базы данных для PostgreSQL
     conn = get_db_connection()
     cursor = conn.cursor()
     
     stats = {}
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    
+    # Получаем список таблиц
+    cursor.execute("""
+        SELECT table_name 
+        FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_type = 'BASE TABLE'
+        ORDER BY table_name
+    """)
     tables = cursor.fetchall()
     
     for table in tables:
@@ -2347,44 +2412,53 @@ def debug_statistics():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        cursor.execute("""
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_schema = 'public' 
+            AND table_type = 'BASE TABLE'
+            ORDER BY table_name
+        """)
         tables = cursor.fetchall()
         
         statistics = {}
         for table in tables:
-            cursor.execute(f'SELECT COUNT(*) FROM {table[0]}')
+            table_name = table[0]
+            cursor.execute(f'SELECT COUNT(*) FROM {table_name}')
             count = cursor.fetchone()[0]
             
             # Для больших таблиц получаем дополнительную информацию
-            if table[0] in ['items', 'action_log', 'transactions']:
-                cursor.execute(f'''
+            if table_name in ['items', 'action_log', 'transactions']:
+                cursor.execute(f"""
                     SELECT 
                         MIN(created_at) as oldest,
                         MAX(created_at) as newest
-                    FROM {table[0]}
+                    FROM {table_name}
                     WHERE created_at IS NOT NULL
-                ''')
+                """)
                 date_info = cursor.fetchone()
-                statistics[table[0]] = {
+                statistics[table_name] = {
                     'count': count,
-                    'oldest': date_info[0] if date_info[0] else 'N/A',
-                    'newest': date_info[1] if date_info[1] else 'N/A'
+                    'oldest': date_info[0].strftime('%Y-%m-%d %H:%M:%S') if date_info and date_info[0] else 'N/A',
+                    'newest': date_info[1].strftime('%Y-%m-%d %H:%M:%S') if date_info and date_info[1] else 'N/A'
                 }
             else:
-                statistics[table[0]] = {'count': count}
+                statistics[table_name] = {'count': count}
         
-        # Размер базы данных
-        cursor.execute("SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()")
-        db_size = cursor.fetchone()[0]
+        # Размер базы данных для PostgreSQL
+        cursor.execute("SELECT pg_database_size(current_database())")
+        db_size_bytes = cursor.fetchone()[0]
+        db_size_mb = round(db_size_bytes / (1024 * 1024), 2)
         
         statistics['database_size'] = {
-            'bytes': db_size,
-            'mb': round(db_size / (1024 * 1024), 2)
+            'bytes': db_size_bytes,
+            'mb': db_size_mb
         }
         
         return jsonify({'success': True, 'statistics': statistics})
         
     except Exception as e:
+        print(f"❌ Ошибка в debug_statistics: {e}")
         return jsonify({'success': False, 'error': str(e)})
     finally:
         if cursor:
@@ -2401,6 +2475,7 @@ if __name__ == '__main__':
     # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
 
 
 
