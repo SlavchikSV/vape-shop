@@ -160,7 +160,7 @@ def init_db():
         # Добавляем стандартных продавцов
         print("👥 Проверяю наличие стандартных продавцов...")
         default_sellers = [
-            ('SlavchikSV', 'sv280606', 'Администратор', 'admin'),
+            ('SlavchikSV', 'sv280606', 'SysAdmin/GM', 'admin'),
             ('mkozlov', '020988mama', 'Главный администратор', 'admin'),
             ('g_nix', 'IHHujhg655G', 'Продавец', 'seller'),  # Новый продавец
         ]
@@ -2401,6 +2401,7 @@ if __name__ == '__main__':
     # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
 
 
 
